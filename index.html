@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>蕉大王的成长记录</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              baby: {
+                pink: '#ffe4e1',
+                blue: '#e0f7fa',
+                text: '#5d5d5d',
+                accent: '#ffb7b2'
+              }
+            },
+            fontFamily: {
+              sans: ['ui-rounded', 'system-ui', 'sans-serif'],
+            }
+          }
+        }
+      }
+    </script>
+
+    <!-- Babel for in-browser JSX transformation -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <!-- React Import Map -->
+    <script type="importmap">
+{
+  "imports": {
+    "react": "https://esm.sh/react@18.2.0",
+    "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
+    "react-dom/": "https://esm.sh/react-dom@^19.2.4/",
+    "react/": "https://esm.sh/react@^19.2.4/",
+    "lucide-react": "https://esm.sh/lucide-react@^0.563.0"
+  }
+}
+</script>
+  </head>
+  <body>
+    <div id="root"></div>
+
+    <script type="text/babel" data-type="module">
+      import React from 'react';
+      import { createRoot } from 'react-dom/client';
+
+      // --- 核心配置 ---
+      // 1. 目标日期
+      const TARGET_DATE = '2025-10-25';
+      
+      // 2. 照片链接
+      const BABY_PHOTO_URL = 'https://github.com/BananaSoldier01/JiaoJiao/blob/main/baby.jpeg?raw=true';
+
+      // --- 工具函数: 日期计算 ---
+      const calculateDaysDifference = (targetDateStr) => {
+        const target = new Date(targetDateStr);
+        const today = new Date();
+
+        // 重置时间部分，确保只比较日期
+        target.setHours(0, 0, 0, 0);
+        today.setHours(0, 0, 0, 0);
+
+        const diffTime = today.getTime() - target.getTime();
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
+        
+        // 计算逻辑：(当前日期 - 目标日期) + 1，出生当天算第一天
+        return diffDays + 1;
+      };
+
+      // --- 主应用组件 ---
+      const App = () => {
+        const daysOld = calculateDaysDifference(TARGET_DATE);
+
+        // 判断逻辑：如果天数小于1，视为未来
+        const isFuture = daysOld < 1;
+        const absDays = Math.abs(daysOld); 
+
+        return (
+          <div className="min-h-screen bg-gradient-to-br from-baby-pink via-white to-baby-blue flex items-center justify-center p-4 relative overflow-hidden">
+            
+            {/* 装饰背景圆球 */}
+            <div className="absolute top-10 left-10 w-32 h-32 bg-yellow-200 rounded-full mix-blend-multiply filter blur-xl opacity-70 animate-pulse"></div>
+            <div className="absolute bottom-10 right-10 w-32 h-32 bg-pink-200 rounded-full mix-blend-multiply filter blur-xl opacity-70 animate-pulse delay-700"></div>
+
+            {/* 主卡片 */}
+            <div className="bg-white/80 backdrop-blur-md rounded-3xl shadow-xl w-full max-w-sm md:max-w-md p-8 text-center border border-white/50 relative z-0 transform transition-all hover:scale-[1.01] duration-500">
+              
+              {/* 照片区域 */}
+              <div className="mb-8 relative inline-block">
+                <div className="w-48 h-48 md:w-64 md:h-64 rounded-full border-8 border-white shadow-lg overflow-hidden mx-auto bg-gray-100 flex items-center justify-center relative">
+                  <img 
+                    src={BABY_PHOTO_URL} 
+                    alt="蕉大王" 
+                    className="w-full h-full object-cover hover:scale-105 transition-transform duration-700"
+                  />
+                </div>
+                {/* 皇冠装饰 */}
+                <div className="absolute bottom-2 right-2 md:bottom-4 md:right-4 bg-white rounded-full p-2 shadow-md z-10">
+                  <span className="text-2xl">👑</span>
+                </div>
+              </div>
+
+              {/* 文字内容区域 */}
+              <div className="space-y-4">
+                <div className="bg-white/60 rounded-xl p-4 inline-block shadow-sm border border-pink-100">
+                  {isFuture ? (
+                    <p className="text-xl text-baby-text font-bold">
+                      蕉大王距离出生还有 <span className="text-4xl text-baby-accent px-1">{Math.abs(daysOld - 1)}</span> 天
+                    </p>
+                  ) : (
+                    <p className="text-xl text-baby-text font-bold">
+                      我蕉大王今天 <span className="text-5xl text-baby-accent px-1 font-sans">{daysOld}</span> 天龄啦！
+                    </p>
+                  )}
+                </div>
+                
+                <p className="text-sm text-gray-400 mt-6 font-light">
+                  {new Date().toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' })}
+                </p>
+              </div>
+            </div>
+          </div>
+        );
+      };
+
+      // 渲染应用
+      const root = createRoot(document.getElementById('root'));
+      root.render(<App />);
+    </script>
+  </body>
+</html>
