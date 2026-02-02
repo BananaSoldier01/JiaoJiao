@@ -16,120 +16,224 @@
                 pink: '#ffe4e1',
                 blue: '#e0f7fa',
                 text: '#5d5d5d',
-                accent: '#ffb7b2'
+                accent: '#ffb7b2',
+                deep: '#ff8fa3'
               }
             },
             fontFamily: {
-              sans: ['ui-rounded', 'system-ui', 'sans-serif'],
+              sans: ['"Rounded Mplus 1c"', 'ui-rounded', 'system-ui', 'sans-serif'],
+            },
+            animation: {
+              'float': 'float 6s ease-in-out infinite',
+            },
+            keyframes: {
+              float: {
+                '0%, 100%': { transform: 'translateY(0)' },
+                '50%': { transform: 'translateY(-10px)' },
+              }
             }
           }
         }
       }
     </script>
 
-    <!-- Babel for in-browser JSX transformation -->
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@400;700;800&display=swap" rel="stylesheet">
+    
+    <!-- Babel for in-browser JSX compilation -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-
-    <!-- React Import Map -->
-    <script type="importmap">
+  <script type="importmap">
 {
   "imports": {
-    "react": "https://esm.sh/react@18.2.0",
-    "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
+    "react": "https://esm.sh/react@^19.2.4",
     "react-dom/": "https://esm.sh/react-dom@^19.2.4/",
     "react/": "https://esm.sh/react@^19.2.4/",
     "lucide-react": "https://esm.sh/lucide-react@^0.563.0"
   }
 }
 </script>
-  </head>
+</head>
   <body>
     <div id="root"></div>
 
     <script type="text/babel" data-type="module">
-      import React from 'react';
-      import { createRoot } from 'react-dom/client';
+      import React, { useState, useMemo } from 'https://esm.sh/react@18.2.0';
+      import { createRoot } from 'https://esm.sh/react-dom@18.2.0/client';
+      import { Crown, Hourglass, CalendarDays, ArrowRight } from 'https://esm.sh/lucide-react@0.292.0';
 
-      // --- 核心配置 ---
-      // 1. 目标日期
-      const TARGET_DATE = '2025-10-25';
-      
-      // 2. 照片链接
+      // --- Constants ---
+      const BIRTH_DATE = '2025-10-25';
       const BABY_PHOTO_URL = 'https://jiaojiao-1257740345.cos.ap-nanjing.myqcloud.com/baby.jpeg';
 
-      // --- 工具函数: 日期计算 ---
-      const calculateDaysDifference = (targetDateStr) => {
-        const target = new Date(targetDateStr);
-        const today = new Date();
+      // --- Utils ---
+      const calculateAgeInDays = (birthDateStr, checkDateStr) => {
+        const birthDate = new Date(birthDateStr);
+        const checkDate = new Date(checkDateStr);
 
-        // 重置时间部分，确保只比较日期
-        target.setHours(0, 0, 0, 0);
-        today.setHours(0, 0, 0, 0);
+        // Reset time to ensure we are comparing dates only
+        birthDate.setHours(0, 0, 0, 0);
+        checkDate.setHours(0, 0, 0, 0);
 
-        const diffTime = today.getTime() - target.getTime();
-        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
-        
-        // 计算逻辑：(当前日期 - 目标日期) + 1，出生当天算第一天
+        const diffTime = checkDate.getTime() - birthDate.getTime();
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
         return diffDays + 1;
       };
 
-      // --- 主应用组件 ---
-      const App = () => {
-        const daysOld = calculateDaysDifference(TARGET_DATE);
+      const formatDate = (date) => {
+        return date.toLocaleDateString('zh-CN', {
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric'
+        });
+      };
 
-        // 判断逻辑：如果天数小于1，视为未来
-        const isFuture = daysOld < 1;
-        const absDays = Math.abs(daysOld); 
+      // --- Components ---
+      
+      const AgeDisplay = ({ days, isFuture, context }) => {
+        const textSize = context === 'today' ? 'text-5xl' : 'text-3xl';
+        const labelSize = context === 'today' ? 'text-xl' : 'text-base';
+        
+        // Calculate days until birth if future (Math.abs(days - 1)) per original logic
+        const daysUntil = Math.abs(days - 1);
+
+        if (isFuture) {
+          return (
+            <div className="text-center animate-pulse">
+              <p className={`${labelSize} text-baby-text font-bold mb-1 flex items-center justify-center gap-2`}>
+                <Hourglass className="w-5 h-5 text-baby-accent" />
+                距离出生还有
+              </p>
+              <p className={`${textSize} text-baby-accent font-extrabold font-sans`}>
+                {daysUntil} <span className="text-lg">天</span>
+              </p>
+            </div>
+          );
+        }
 
         return (
-          <div className="min-h-screen bg-gradient-to-br from-baby-pink via-white to-baby-blue flex items-center justify-center p-4 relative overflow-hidden">
-            
-            {/* 装饰背景圆球 */}
-            <div className="absolute top-10 left-10 w-32 h-32 bg-yellow-200 rounded-full mix-blend-multiply filter blur-xl opacity-70 animate-pulse"></div>
-            <div className="absolute bottom-10 right-10 w-32 h-32 bg-pink-200 rounded-full mix-blend-multiply filter blur-xl opacity-70 animate-pulse delay-700"></div>
+          <div className="text-center">
+            <p className={`${labelSize} text-baby-text font-bold mb-1 flex items-center justify-center gap-2`}>
+              {context === 'today' && <Crown className="w-5 h-5 text-yellow-400 fill-yellow-400" />}
+              {context === 'today' ? '蕉大王今天' : '那天是'}
+            </p>
+            <p className={`${textSize} text-baby-deep font-extrabold font-sans drop-shadow-sm`}>
+              {days} <span className="text-lg">天龄</span>
+            </p>
+          </div>
+        );
+      };
 
-            {/* 主卡片 */}
-            <div className="bg-white/80 backdrop-blur-md rounded-3xl shadow-xl w-full max-w-sm md:max-w-md p-8 text-center border border-white/50 relative z-0 transform transition-all hover:scale-[1.01] duration-500">
+      const Calculator = ({ birthDate }) => {
+        const [selectedDate, setSelectedDate] = useState('');
+
+        const calculationResult = useMemo(() => {
+          if (!selectedDate) return null;
+          const days = calculateAgeInDays(birthDate, selectedDate);
+          return {
+            days,
+            isFuture: days < 1
+          };
+        }, [birthDate, selectedDate]);
+
+        return (
+          <div className="mt-8 pt-6 border-t border-pink-100 w-full">
+            <div className="flex flex-col gap-3">
+              <label className="text-sm font-bold text-gray-500 flex items-center gap-2 ml-1">
+                <CalendarDays className="w-4 h-4 text-baby-accent" />
+                算算某一天多大啦？
+              </label>
               
-              {/* 照片区域 */}
-              <div className="mb-8 relative inline-block">
-                <div className="w-48 h-48 md:w-64 md:h-64 rounded-full border-8 border-white shadow-lg overflow-hidden mx-auto bg-gray-100 flex items-center justify-center relative">
-                  <img 
-                    src={BABY_PHOTO_URL} 
-                    alt="蕉大王" 
-                    className="w-full h-full object-cover hover:scale-105 transition-transform duration-700"
-                  />
-                </div>
-                {/* 皇冠装饰 */}
-                <div className="absolute bottom-2 right-2 md:bottom-4 md:right-4 bg-white rounded-full p-2 shadow-md z-10">
-                  <span className="text-2xl">👑</span>
+              <div className="relative group">
+                <input
+                  type="date"
+                  value={selectedDate}
+                  onChange={(e) => setSelectedDate(e.target.value)}
+                  className="w-full px-4 py-3 bg-pink-50/50 border border-pink-100 rounded-xl text-gray-600 focus:outline-none focus:ring-2 focus:ring-baby-accent focus:bg-white transition-all cursor-pointer font-sans"
+                />
+                <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-baby-accent opacity-0 group-hover:opacity-100 transition-opacity">
+                  <ArrowRight className="w-4 h-4" />
                 </div>
               </div>
 
-              {/* 文字内容区域 */}
-              <div className="space-y-4">
-                <div className="bg-white/60 rounded-xl p-4 inline-block shadow-sm border border-pink-100">
-                  {isFuture ? (
-                    <p className="text-xl text-baby-text font-bold">
-                      蕉大王距离出生还有 <span className="text-4xl text-baby-accent px-1">{Math.abs(daysOld - 1)}</span> 天
-                    </p>
-                  ) : (
-                    <p className="text-xl text-baby-text font-bold">
-                      我蕉大王今天 <span className="text-5xl text-baby-accent px-1 font-sans">{daysOld}</span> 天龄啦！
-                    </p>
-                  )}
+              {calculationResult && (
+                <div className="mt-4 bg-gradient-to-r from-pink-50 to-white rounded-xl p-4 border border-pink-100 shadow-sm transition-all duration-300 transform animate-in fade-in slide-in-from-bottom-2">
+                   <div className="text-sm text-gray-400 mb-1 text-center">
+                      {new Date(selectedDate).toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' })}
+                   </div>
+                   <AgeDisplay 
+                      days={calculationResult.days} 
+                      isFuture={calculationResult.isFuture} 
+                      context="calculator" 
+                   />
                 </div>
-                
-                <p className="text-sm text-gray-400 mt-6 font-light">
-                  {new Date().toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' })}
-                </p>
-              </div>
+              )}
             </div>
           </div>
         );
       };
 
-      // 渲染应用
+      // --- Main App ---
+      const App = () => {
+        const today = new Date();
+        const daysOld = calculateAgeInDays(BIRTH_DATE, today);
+        const isFuture = daysOld < 1;
+
+        return (
+          <div className="min-h-screen bg-gradient-to-br from-baby-pink via-white to-baby-blue flex items-center justify-center p-4 relative overflow-hidden font-sans">
+            
+            {/* Decorative background blobs */}
+            <div className="absolute top-10 left-10 w-48 h-48 bg-yellow-200/60 rounded-full mix-blend-multiply filter blur-2xl opacity-70 animate-float"></div>
+            <div className="absolute bottom-10 right-10 w-56 h-56 bg-pink-200/60 rounded-full mix-blend-multiply filter blur-2xl opacity-70 animate-float delay-1000"></div>
+            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-80 h-80 bg-blue-100/40 rounded-full mix-blend-multiply filter blur-3xl opacity-50"></div>
+
+            {/* Main Card */}
+            <div className="bg-white/80 backdrop-blur-md rounded-[2.5rem] shadow-2xl w-full max-w-sm md:max-w-md p-8 relative z-10 border border-white/60 ring-1 ring-white/40">
+              
+              {/* Photo Area */}
+              <div className="mb-6 relative flex justify-center">
+                <div className="relative group cursor-pointer">
+                  <div className="w-48 h-48 md:w-56 md:h-56 rounded-full border-8 border-white shadow-xl overflow-hidden bg-gray-100 relative z-10 transition-transform duration-500 group-hover:scale-105 group-hover:rotate-2">
+                    <img 
+                      src={BABY_PHOTO_URL} 
+                      alt="蕉大王" 
+                      className="w-full h-full object-cover"
+                      loading="eager"
+                    />
+                  </div>
+                  {/* Crown Decoration */}
+                  <div className="absolute -top-2 -right-2 md:top-0 md:right-0 bg-white rounded-full p-2.5 shadow-lg z-20 animate-bounce delay-700">
+                    <span className="text-3xl leading-none filter drop-shadow-sm">👑</span>
+                  </div>
+                  {/* Decorative ring behind photo */}
+                  <div className="absolute inset-0 rounded-full border-2 border-baby-pink scale-110 opacity-0 group-hover:opacity-100 group-hover:scale-125 transition-all duration-700"></div>
+                </div>
+              </div>
+
+              {/* Hero Content Area */}
+              <div className="flex flex-col items-center space-y-2">
+                <div className="bg-white/70 rounded-2xl p-6 w-full shadow-sm border border-pink-100/50 backdrop-blur-sm">
+                  <AgeDisplay days={daysOld} isFuture={isFuture} context="today" />
+                </div>
+                
+                <p className="text-xs text-gray-400 font-medium tracking-wide mt-2">
+                  今天是 {formatDate(today)}
+                </p>
+              </div>
+
+              {/* Interactive Calculator Section */}
+              <Calculator birthDate={BIRTH_DATE} />
+
+            </div>
+            
+            {/* Footer / Copyright */}
+            <div className="absolute bottom-4 text-center w-full text-xs text-gray-400/50">
+              Jiao Dawang's Growth Record
+            </div>
+          </div>
+        );
+      };
+
       const root = createRoot(document.getElementById('root'));
       root.render(<App />);
     </script>
