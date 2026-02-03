@@ -5,96 +5,237 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>蕉大王的成长记录</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@400;700;800&display=swap" rel="stylesheet">
     <script>
         tailwind.config = {
             theme: {
                 extend: {
                     colors: {
-                        baby: { pink: '#ffe4e1', blue: '#e0f7fa', text: '#5d5d5d', accent: '#ffb7b2', deep: '#ff8fa3' }
+                        baby: {
+                            pink: '#ffe4e1',
+                            blue: '#e0f7fa',
+                            text: '#5d5d5d',
+                            accent: '#ffb7b2',
+                            deep: '#ff8fa3',
+                            yellow: '#fef08a'
+                        }
                     },
-                    animation: { 'float': 'float 6s ease-in-out infinite' },
-                    keyframes: { float: { '0%, 100%': { transform: 'translateY(0)' }, '50%': { transform: 'translateY(-10px)' } } }
+                    animation: {
+                        'float': 'float 6s ease-in-out infinite',
+                        'pulse-gentle': 'pulse-gentle 3s ease-in-out infinite'
+                    },
+                    keyframes: {
+                        float: {
+                            '0%, 100%': { transform: 'translateY(0)' },
+                            '50%': { transform: 'translateY(-15px)' }
+                        },
+                        'pulse-gentle': {
+                            '0%, 100%': { opacity: '1' },
+                            '50%': { opacity: '0.7' }
+                        }
+                    }
                 }
             }
         }
     </script>
-    <link href="https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@400;700;800&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'M PLUS Rounded 1c', sans-serif;
+            -webkit-tap-highlight-color: transparent;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        input[type="date"]::-webkit-calendar-picker-indicator {
+            background-color: transparent;
+            cursor: pointer;
+            opacity: 0.5;
+        }
+    </style>
+    <script type="importmap">
+    {
+      "imports": {
+        "react": "https://esm.sh/react@18.2.0",
+        "react-dom": "https://esm.sh/react-dom@18.2.0",
+        "react-dom/client": "https://esm.sh/react-dom@18.2.0/client"
+      }
+    }
+    </script>
 </head>
-<body class="bg-gradient-to-br from-[#ffe4e1] via-white to-[#e0f7fa] min-h-screen flex items-center justify-center p-4 relative overflow-hidden font-sans">
-    
-    <div class="absolute top-10 left-10 w-48 h-48 bg-yellow-200/40 rounded-full mix-blend-multiply filter blur-2xl animate-float"></div>
-    <div class="absolute bottom-10 right-10 w-56 h-56 bg-pink-200/40 rounded-full mix-blend-multiply filter blur-2xl animate-float" style="animation-delay: 1s"></div>
+<body class="bg-gradient-to-br from-[#ffe4e1] via-white to-[#e0f7fa] min-h-screen overflow-x-hidden">
+    <div id="root"></div>
 
-    <div id="app-container" class="w-full max-w-sm md:max-w-md relative z-10">
-        </div>
+    <script type="module">
+        import React, { useState, useEffect } from 'react';
+        import ReactDOM from 'react-dom/client';
 
-    <script>
-        // --- 核心配置 ---
+        // --- Configuration ---
         const BIRTH_DATE = '2025-10-25';
         const BABY_PHOTO_URL = 'https://jiaojiao-1257740345.cos.ap-nanjing.myqcloud.com/baby.jpeg';
 
-        // --- 工具函数 ---
-        const calculateDays = (targetDateStr) => {
-            const birth = new Date(BIRTH_DATE);
+        // --- Utilities ---
+        /**
+         * Calculates precise age based on calendar years and anniversaries.
+         * Birth day is considered Day 1 (1天龄).
+         */
+        const calculateAgeInfo = (birthDateStr, targetDateStr) => {
+            const birth = new Date(birthDateStr);
             const target = targetDateStr ? new Date(targetDateStr) : new Date();
+            
             birth.setHours(0, 0, 0, 0);
             target.setHours(0, 0, 0, 0);
-            const diff = Math.ceil((target - birth) / (1000 * 60 * 60 * 24));
-            return diff + 1;
+            
+            const diffTime = target.getTime() - birth.getTime();
+            const totalDays = Math.floor(diffTime / (1000 * 60 * 60 * 24)) + 1;
+
+            if (totalDays < 1) {
+                return {
+                    days: totalDays,
+                    formatted: `距离出生还有 ${Math.abs(totalDays - 1)} 天`,
+                    isFuture: true
+                };
+            }
+
+            // Calculate precise years by looking at the anniversary
+            let years = target.getFullYear() - birth.getFullYear();
+            const birthThisYear = new Date(target.getFullYear(), birth.getMonth(), birth.getDate());
+            
+            if (target < birthThisYear) {
+                years--;
+            }
+
+            // If less than a year, just show total days
+            if (years < 1) {
+                return {
+                    days: totalDays,
+                    formatted: `${totalDays} 天龄`,
+                    isFuture: false
+                };
+            }
+
+            // Find the most recent anniversary to calculate remaining days
+            const lastAnniversary = new Date(birth.getFullYear() + years, birth.getMonth(), birth.getDate());
+            const daysSinceAnniversary = Math.floor((target.getTime() - lastAnniversary.getTime()) / (1000 * 60 * 60 * 24));
+
+            let formatted = `${years} 岁`;
+            if (daysSinceAnniversary > 0) {
+                formatted += ` ${daysSinceAnniversary} 天龄`;
+            }
+            // else: strictly "X 岁" on birthday
+            
+            return {
+                days: totalDays,
+                formatted,
+                isFuture: false
+            };
         };
 
-        const renderPage = (selectedDate = '') => {
-            const daysOld = calculateDays();
-            const calcDays = selectedDate ? calculateDays(selectedDate) : null;
-            
-            const container = document.getElementById('app-container');
-            container.innerHTML = `
-                <div class="bg-white/80 backdrop-blur-md rounded-[2.5rem] shadow-2xl p-8 border border-white/60 text-center">
-                    <div class="mb-6 relative flex justify-center group">
-                        <div class="w-48 h-48 md:w-56 md:h-56 rounded-full border-8 border-white shadow-xl overflow-hidden bg-gray-100 transition-transform group-hover:scale-105">
-                            <img src="${BABY_PHOTO_URL}" class="w-full h-full object-cover" alt="蕉大王">
-                        </div>
-                        <div class="absolute -top-2 -right-2 bg-white rounded-full p-2.5 shadow-lg animate-bounce">
-                            <span class="text-3xl">👑</span>
-                        </div>
-                    </div>
-
-                    <div class="bg-white/70 rounded-2xl p-6 shadow-sm border border-pink-100/50">
-                        <p class="text-xl text-baby-text font-bold mb-1">蕉大王今天</p>
-                        <p class="text-5xl text-baby-deep font-extrabold font-sans drop-shadow-sm">
-                            ${daysOld} <span class="text-lg">天龄</span>
-                        </p>
-                    </div>
-                    
-                    <p class="text-xs text-gray-400 mt-4">今天是 ${new Date().toLocaleDateString('zh-CN')}</p>
-
-                    <div class="mt-8 pt-6 border-t border-pink-100">
-                        <label class="text-sm font-bold text-gray-500 block mb-3 text-left pl-2">📅 算算某一天多大啦？</label>
-                        <input type="date" id="date-input" value="${selectedDate}" 
-                            class="w-full px-4 py-3 bg-pink-50/50 border border-pink-100 rounded-xl focus:ring-2 focus:ring-baby-accent outline-none font-sans cursor-pointer"
-                        >
-                        
-                        ${calcDays ? `
-                            <div class="mt-4 bg-gradient-to-r from-pink-50 to-white rounded-xl p-4 border border-pink-100 animate-pulse">
-                                <p class="text-sm text-gray-400 mb-1">${new Date(selectedDate).toLocaleDateString('zh-CN')}</p>
-                                <p class="text-3xl text-baby-deep font-extrabold">
-                                    ${calcDays < 1 ? `距离出生还有 ${Math.abs(calcDays - 1)} 天` : `${calcDays} 天龄`}
-                                </p>
-                            </div>
-                        ` : ''}
-                    </div>
-                </div>
-                <div class="mt-4 text-center text-xs text-gray-400/50 uppercase tracking-widest">Growth Record</div>
-            `;
-
-            // 重新绑定事件
-            document.getElementById('date-input').addEventListener('change', (e) => {
-                renderPage(e.target.value);
+        const formatFriendlyDate = (dateStr) => {
+            return new Date(dateStr).toLocaleDateString('zh-CN', {
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric'
             });
         };
 
-        // 初始渲染
-        renderPage();
+        // --- Components ---
+        const App = () => {
+            const [selectedDate, setSelectedDate] = useState('');
+            const [todayAge, setTodayAge] = useState('');
+            const [todayDays, setTodayDays] = useState(0);
+
+            useEffect(() => {
+                const info = calculateAgeInfo(BIRTH_DATE);
+                setTodayAge(info.formatted);
+                setTodayDays(info.days);
+            }, []);
+
+            const handleDateChange = (e) => {
+                setSelectedDate(e.target.value);
+            };
+
+            const calcResult = selectedDate ? calculateAgeInfo(BIRTH_DATE, selectedDate) : null;
+
+            return React.createElement('div', { className: "relative min-h-screen flex items-center justify-center p-4" }, [
+                // Background Decorations
+                React.createElement('div', { key: 'bg1', className: "absolute top-10 left-10 w-48 h-48 bg-yellow-200/30 rounded-full mix-blend-multiply filter blur-3xl animate-float" }),
+                React.createElement('div', { key: 'bg2', className: "absolute bottom-10 right-10 w-64 h-64 bg-pink-200/30 rounded-full mix-blend-multiply filter blur-3xl animate-float", style: { animationDelay: '2s' } }),
+                React.createElement('div', { key: 'bg3', className: "absolute top-1/2 left-1/4 w-32 h-32 bg-blue-100/40 rounded-full mix-blend-multiply filter blur-2xl animate-float", style: { animationDelay: '1s' } }),
+
+                React.createElement('div', { key: 'main', className: "w-full max-w-md relative z-10 space-y-4" }, [
+                    React.createElement('div', { key: 'card', className: "bg-white/70 backdrop-blur-xl rounded-[3rem] shadow-[0_20px_50px_rgba(0,0,0,0.1)] p-8 border border-white/60" }, [
+                        
+                        // Avatar Section
+                        React.createElement('div', { key: 'avatar', className: "flex justify-center mb-8" }, 
+                            React.createElement('div', { className: "relative group" }, [
+                                React.createElement('div', { className: "w-44 h-44 md:w-52 md:h-52 rounded-full border-[10px] border-white shadow-2xl overflow-hidden bg-gray-100 transition-all duration-500 group-hover:scale-105 group-hover:rotate-2" }, 
+                                    React.createElement('img', { 
+                                        src: BABY_PHOTO_URL, 
+                                        className: "w-full h-full object-cover", 
+                                        alt: "蕉大王",
+                                        onError: (e) => { e.target.src = 'https://picsum.photos/400/400?random=1'; }
+                                    })
+                                ),
+                                React.createElement('div', { className: "absolute -top-4 -right-2 bg-white rounded-full p-3 shadow-xl animate-bounce" }, React.createElement('span', { className: "text-3xl" }, "👑")),
+                                React.createElement('div', { className: "absolute -bottom-2 -left-2 bg-white rounded-full px-4 py-1 shadow-lg border border-pink-50" }, 
+                                    React.createElement('span', { className: "text-xs font-bold text-baby-deep tracking-wider" }, "BANANA KING")
+                                )
+                            ])
+                        ),
+
+                        // Today's Display
+                        React.createElement('div', { key: 'stats', className: "text-center space-y-2 mb-8" }, [
+                            React.createElement('h2', { className: "text-gray-500 font-bold tracking-widest text-sm uppercase" }, "蕉大王今天"),
+                            React.createElement('div', { className: "bg-gradient-to-br from-white to-pink-50/50 rounded-3xl p-6 border border-pink-100/50 shadow-inner" }, [
+                                React.createElement('p', { className: "text-5xl md:text-6xl text-baby-deep font-black drop-shadow-sm font-sans" }, [
+                                    todayDays, 
+                                    React.createElement('span', { className: "text-xl font-bold align-middle ml-1" }, "天龄")
+                                ]),
+                                // If today is more than 365 days or a specific year format
+                                todayAge.includes('岁') && React.createElement('p', { className: "mt-3 text-lg font-bold text-gray-400 bg-white/50 inline-block px-4 py-1 rounded-full border border-pink-50" }, todayAge)
+                            ]),
+                            React.createElement('p', { className: "text-xs text-gray-400 pt-2 tracking-wide italic" }, 
+                                `今天是 ${new Date().toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' }).replace(/\//g, '-')}`
+                            )
+                        ]),
+
+                        // Calculation Section
+                        React.createElement('div', { key: 'calc', className: "pt-8 border-t border-dashed border-pink-200/60" }, [
+                            React.createElement('div', { className: "flex items-center space-x-2 mb-4 px-2" }, [
+                                React.createElement('span', { className: "text-xl" }, "📅"),
+                                React.createElement('label', { className: "text-sm font-bold text-gray-600 tracking-tight" }, "算算某一天多大啦？")
+                            ]),
+                            React.createElement('div', { className: "relative group" }, 
+                                React.createElement('input', { 
+                                    type: "date", 
+                                    value: selectedDate,
+                                    onChange: handleDateChange,
+                                    className: "w-full px-6 py-4 bg-white/60 border-2 border-pink-100 rounded-2xl focus:ring-4 focus:ring-baby-accent/20 focus:border-baby-accent outline-none font-sans cursor-pointer transition-all duration-300 text-gray-700 shadow-sm group-hover:shadow-md"
+                                })
+                            ),
+
+                            calcResult && React.createElement('div', { className: "mt-6 animate-[fadeIn_0.5s_ease-out]" }, 
+                                React.createElement('div', { className: "bg-gradient-to-r from-pink-500/10 to-blue-500/10 rounded-2xl p-5 border border-white shadow-sm" }, [
+                                    React.createElement('p', { className: "text-xs font-bold text-gray-400 mb-2 uppercase tracking-tighter" }, formatFriendlyDate(selectedDate)),
+                                    React.createElement('p', { className: `text-2xl md:text-3xl font-black ${calcResult.isFuture ? 'text-gray-400' : 'text-baby-deep'}` }, calcResult.formatted),
+                                    !calcResult.isFuture && calcResult.days > 365 && React.createElement('p', { className: "text-xs text-gray-400 mt-2 font-medium" }, `共计 ${calcResult.days} 个充满阳光的日子`)
+                                ])
+                            )
+                        ])
+                    ]),
+
+                    // Footer
+                    React.createElement('div', { key: 'footer', className: "text-center" }, 
+                        React.createElement('p', { className: "text-[10px] text-gray-400/60 font-black tracking-[0.3em] uppercase" }, "Growth Records • Forever Love")
+                    )
+                ])
+            ]);
+        };
+
+        // --- Init ---
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(React.createElement(App));
     </script>
 </body>
 </html>
