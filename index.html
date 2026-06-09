@@ -59,6 +59,17 @@
         .bounce-animation {
             animation: bounce-slow 2s ease-in-out infinite;
         }
+
+        /* 食物卡片hover效果 */
+        .food-card {
+            transform: rotate(var(--rotate, 0deg));
+            transition: all 0.3s ease;
+        }
+
+        .food-card:hover {
+            transform: rotate(calc(var(--rotate, 0deg) * -1)) scale(1.03);
+            box-shadow: 8px 8px 0 #374151;
+        }
     </style>
 </head>
 <body>
@@ -74,7 +85,7 @@
         // 数据库加载函数
         async function loadDatabase() {
             try {
-                const response = await fetch('./jiaojiao.db');
+                const response = await fetch('./数据/jiaojiao.db');
                 if (!response.ok) throw new Error('数据库加载失败');
                 const buffer = await response.arrayBuffer();
                 // 使用全局配置的 initSqlJs
@@ -170,6 +181,81 @@
             const [db, setDb] = useState(null);
             const [todayData, setTodayData] = useState(null);
             const [loading, setLoading] = useState(true);
+            const [allergenFoods, setAllergenFoods] = useState(null);
+            const [showNameStory, setShowNameStory] = useState(false);
+
+            // 食材到emoji的映射
+            const foodEmojiMap = {
+                '米粉': '🍚',
+                '大米粥': '🥣',
+                '南瓜': '🎃',
+                '土豆': '🥔',
+                '胡萝卜': '🥕',
+                '菠菜': '🥬',
+                '西兰花': '🥦',
+                '西蓝花': '🥦',
+                '紫甘蓝': '🥗',
+                '山药': '🥔',
+                '蛋黄': '🥚',
+                '鸡蛋': '🥚',
+                '猪肉': '🥩',
+                '牛肉': '🍖',
+                '核桃油': '🫒',
+            };
+
+            // 食材分类规则
+            const categoryRules = {
+                grains: ['米粉', '大米粥'],
+                vegetables: ['南瓜', '土豆', '胡萝卜', '菠菜', '西兰花', '西蓝花', '紫甘蓝', '山药'],
+                protein: ['蛋黄', '鸡蛋', '猪肉', '牛肉'],
+                oils: ['核桃油']
+            };
+
+            // 从数据库解析排敏食物
+            const parseAllergenFoods = (db) => {
+                try {
+                    // 查询所有辅食记录
+                    const result = db.exec("SELECT food_name FROM solid_food WHERE food_name != '辅食内容'");
+                    if (result.length === 0) return null;
+
+                    // 提取所有食材（按+号分割）
+                    const allIngredients = new Set();
+                    result[0].values.forEach(row => {
+                        const foods = row[0].split('+');
+                        foods.forEach(food => {
+                            // 去掉"泥"后缀，只保留核心食材名
+                            const cleaned = food.replace(/泥/g, '').trim();
+                            if (cleaned) allIngredients.add(cleaned);
+                        });
+                    });
+
+                    // 按类别分类
+                    const categorized = {
+                        grains: [],
+                        vegetables: [],
+                        protein: [],
+                        oils: []
+                    };
+
+                    allIngredients.forEach(ingredient => {
+                        // 检查属于哪个类别
+                        for (const [category, items] of Object.entries(categoryRules)) {
+                            if (items.includes(ingredient)) {
+                                categorized[category].push({
+                                    name: ingredient,
+                                    emoji: foodEmojiMap[ingredient] || '🍽️'
+                                });
+                                break;
+                            }
+                        }
+                    });
+
+                    return categorized;
+                } catch (error) {
+                    console.error('解析排敏食物失败：', error);
+                    return null;
+                }
+            };
 
             useEffect(() => {
                 // 计算天数
@@ -186,13 +272,10 @@
                         console.log('✅ 数据库加载成功');
                         setDb(database);
 
-                        // 调试：查看数据库中的表
-                        const tables = database.exec("SELECT name FROM sqlite_master WHERE type='table'");
-                        console.log('📋 数据库表：', tables);
-
-                        // 调试：查看feeding表的记录数
-                        const feedingCount = database.exec("SELECT COUNT(*) FROM feeding");
-                        console.log('🍼 feeding记录数：', feedingCount);
+                        // 解析排敏食物
+                        const foods = parseAllergenFoods(database);
+                        setAllergenFoods(foods);
+                        console.log('🥦 排敏食物：', foods);
 
                         const data = getTodayData(database);
                         setTodayData(data);
@@ -249,15 +332,6 @@
             const age = calculateAge();
             const zodiac = getZodiac();
             const chineseZodiac = getChineseZodiac();
-            const stats = todayData ? {
-                feeding: { count: todayData.feeding.length, icon: '🍼', color: 'bg-memphis-pink' },
-                sleep: { total: calculateSleepTotal(todayData.sleep), icon: '🌙', color: 'bg-memphis-teal' },
-                diaper: { count: todayData.diaper.length, icon: '🧸', color: 'bg-memphis-yellow' },
-            } : {
-                feeding: { count: 0, icon: '🍼', color: 'bg-memphis-pink' },
-                sleep: { total: '0小时', icon: '🌙', color: 'bg-memphis-teal' },
-                diaper: { count: 0, icon: '🧸', color: 'bg-memphis-yellow' },
-            };
 
             return (
                 <div className="min-h-screen bg-[#FFFDE7] relative overflow-hidden">
@@ -342,28 +416,148 @@
                             </div>
                         </div>
 
-                        {/* 今日数据 */}
+                        {/* 名字故事卡片 */}
                         <div
-                            className="grid grid-cols-3 gap-3 mb-5"
-                            style={{ animation: 'fadeInUp 0.6s ease-out 0.2s both' }}
+                            className="rounded-3xl p-5 mb-5 border-3 border-memphis-dark shadow-[6px_6px_0_#374151] cursor-pointer hover:shadow-[8px_8px_0_#374151] hover:translate-x-[-2px] hover:translate-y-[-2px] transition-all duration-200"
+                            style={{
+                                animation: 'fadeInUp 0.6s ease-out 0.15s both',
+                                borderWidth: '3px',
+                                background: 'linear-gradient(135deg, #FFE4E6 0%, #FFF9C4 100%)',
+                            }}
+                            onClick={() => setShowNameStory(!showNameStory)}
                         >
-                            {[
-                                { ...stats.feeding, label: '喂养', value: stats.feeding.count + '次' },
-                                { ...stats.sleep, label: '睡眠', value: stats.sleep.total },
-                                { ...stats.diaper, label: '尿布', value: stats.diaper.count + '次' },
-                            ].map((item, i) => (
-                                <div
-                                    key={i}
-                                    className={`${item.color} rounded-2xl p-4 text-center border-2 border-memphis-dark shadow-[4px_4px_0_#374151]`}
-                                    style={{
-                                        transform: `rotate(${i % 2 === 0 ? -2 : 2}deg)`,
-                                    }}
-                                >
-                                    <div className="text-2xl mb-1">{item.icon}</div>
-                                    <div className="text-xs text-gray-600 font-medium">{item.label}</div>
-                                    <div className="text-lg font-bold text-memphis-dark mt-1">{item.value}</div>
+                            <div className="flex items-center justify-between mb-3">
+                                <div className="flex items-center gap-2">
+                                    <span className="text-lg">📖</span>
+                                    <span className="font-bold text-memphis-dark">名字的故事</span>
                                 </div>
-                            ))}
+                                <span className="text-memphis-dark transition-transform duration-200" style={{ transform: showNameStory ? 'rotate(180deg)' : 'rotate(0deg)' }}>
+                                    ▼
+                                </span>
+                            </div>
+
+                            {/* 简短信息（始终显示） */}
+                            <div className="flex items-center gap-3">
+                                <div className="bg-memphis-yellow rounded-xl px-4 py-2 border-2 border-memphis-dark">
+                                    <span className="font-bold text-memphis-dark text-lg">吴系舟</span>
+                                </div>
+                                <div className="text-sm text-gray-500">
+                                    小名：蕉蕉 / 蕉大王
+                                </div>
+                            </div>
+
+                            {/* 展开的详细内容 */}
+                            {showNameStory && (
+                                <div className="mt-4 pt-4 border-t border-gray-100">
+                                    <div className="mb-4">
+                                        <div className="text-sm font-semibold text-memphis-dark mb-2">📜 出处</div>
+                                        <div className="text-sm text-gray-600 italic pl-3 border-l-3 border-memphis-yellow">
+                                            《庄子》
+                                        </div>
+                                        <div className="text-sm text-gray-600 italic pl-3 mt-1">
+                                            「一饱食而遨游，泛若不系之舟，虚而遨游者也。」
+                                        </div>
+                                    </div>
+
+                                    <div>
+                                        <div className="text-sm font-semibold text-memphis-dark mb-2">💝 父母寄愿</div>
+                                        <div className="text-sm text-gray-600 leading-relaxed pl-3 border-l-3 border-memphis-teal">
+                                            愿你如没有绳索的小船，自己把握航向，探索世界无拘无束，自在乘风随处可泊，亦可随时启航。
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* 已排敏食物 */}
+                        <div style={{ animation: 'fadeInUp 0.6s ease-out 0.2s both' }}>
+                            <div className="flex items-center justify-between mb-4">
+                                <div className="flex items-center gap-2">
+                                    <span className="text-lg">📋</span>
+                                    <span className="font-bold text-memphis-dark">已排敏食物</span>
+                                </div>
+                                <span className="text-sm text-memphis-dark font-bold tracking-wide">
+                                    共{allergenFoods ?
+                                        (allergenFoods.grains.length + allergenFoods.vegetables.length +
+                                         allergenFoods.protein.length + allergenFoods.oils.length) : 0}种
+                                </span>
+                            </div>
+
+                            {allergenFoods && (
+                                <>
+                                    {/* 谷物类卡片 - 橙色 */}
+                                    {allergenFoods.grains.length > 0 && (
+                                        <div className="food-card bg-[#F97316] rounded-2xl p-4 mb-3 border-2 border-memphis-dark shadow-[4px_4px_0_#374151] cursor-pointer"
+                                            style={{ '--rotate': '-2deg' }}>
+                                            <div className="flex items-center gap-2 mb-3">
+                                                <span className="font-bold text-white text-lg">谷物类</span>
+                                                <span className="text-sm text-white/80 font-bold">({allergenFoods.grains.length})</span>
+                                            </div>
+                                            <div className="flex flex-wrap gap-2">
+                                                {allergenFoods.grains.map((food, i) => (
+                                                    <span key={i} className="bg-white/90 px-3 py-1.5 rounded-full text-sm font-medium text-memphis-dark">
+                                                        {food.emoji} {food.name}
+                                                    </span>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* 蔬菜类卡片 - 绿色 */}
+                                    {allergenFoods.vegetables.length > 0 && (
+                                        <div className="food-card bg-[#22C55E] rounded-2xl p-4 mb-3 border-2 border-memphis-dark shadow-[4px_4px_0_#374151] cursor-pointer"
+                                            style={{ '--rotate': '2deg' }}>
+                                            <div className="flex items-center gap-2 mb-3">
+                                                <span className="font-bold text-white text-lg">蔬菜类</span>
+                                                <span className="text-sm text-white/80 font-bold">({allergenFoods.vegetables.length})</span>
+                                            </div>
+                                            <div className="flex flex-wrap gap-2">
+                                                {allergenFoods.vegetables.map((food, i) => (
+                                                    <span key={i} className="bg-white/90 px-3 py-1.5 rounded-full text-sm font-medium text-memphis-dark">
+                                                        {food.emoji} {food.name}
+                                                    </span>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* 肉禽海鲜类卡片 - 红色 */}
+                                    {allergenFoods.protein.length > 0 && (
+                                        <div className="food-card bg-[#EF4444] rounded-2xl p-4 mb-3 border-2 border-memphis-dark shadow-[4px_4px_0_#374151] cursor-pointer"
+                                            style={{ '--rotate': '-2deg' }}>
+                                            <div className="flex items-center gap-2 mb-3">
+                                                <span className="font-bold text-white text-lg">肉禽海鲜类</span>
+                                                <span className="text-sm text-white/80 font-bold">({allergenFoods.protein.length})</span>
+                                            </div>
+                                            <div className="flex flex-wrap gap-2">
+                                                {allergenFoods.protein.map((food, i) => (
+                                                    <span key={i} className="bg-white/90 px-3 py-1.5 rounded-full text-sm font-medium text-memphis-dark">
+                                                        {food.emoji} {food.name}
+                                                    </span>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* 油脂类卡片 - 黄色 */}
+                                    {allergenFoods.oils.length > 0 && (
+                                        <div className="food-card bg-memphis-yellow rounded-2xl p-4 border-2 border-memphis-dark shadow-[4px_4px_0_#374151] cursor-pointer"
+                                            style={{ '--rotate': '2deg' }}>
+                                            <div className="flex items-center gap-2 mb-3">
+                                                <span className="font-bold text-memphis-dark text-lg">油脂类</span>
+                                                <span className="text-sm text-memphis-dark/80 font-bold">({allergenFoods.oils.length})</span>
+                                            </div>
+                                            <div className="flex flex-wrap gap-2">
+                                                {allergenFoods.oils.map((food, i) => (
+                                                    <span key={i} className="bg-white/90 px-3 py-1.5 rounded-full text-sm font-medium text-memphis-dark">
+                                                        {food.emoji} {food.name}
+                                                    </span>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+                                </>
+                            )}
                         </div>
 
                         {/* 功能入口 */}
@@ -374,9 +568,9 @@
                                 borderWidth: '3px',
                             }}
                         >
-                            <button className="w-full flex items-center justify-center gap-2 p-4 bg-memphis-yellow rounded-2xl border-2 border-memphis-dark shadow-[3px_3px_0_#374151] hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-[1px_1px_0_#374151] transition-all">
+                            <button className="w-full flex items-center justify-center gap-2 p-4 bg-memphis-teal rounded-2xl border-2 border-memphis-dark shadow-[3px_3px_0_#374151] hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-[1px_1px_0_#374151] transition-all">
                                 <span className="text-xl">🔍</span>
-                                <span className="font-bold text-memphis-dark">查询历史记录</span>
+                                <span className="font-bold text-white">查询历史记录</span>
                             </button>
                         </div>
 
