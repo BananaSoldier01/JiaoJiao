@@ -9,7 +9,6 @@
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/sql-wasm.js"></script>
     <script>
         tailwind.config = {
             theme: {
@@ -82,71 +81,52 @@
         const BIRTH_DATE = '2025-10-25';
         const BABY_PHOTO_URL = 'https://jiaojiao-1257740345.cos.ap-nanjing.myqcloud.com/px_live_cover_BB088B3C-04E4-4CFD-BE3A-BCD54ED40EF8_L0_001_IMG_3070.jpg';
 
-        // 数据库加载函数
-        async function loadDatabase() {
+        // JSON数据加载函数
+        async function loadData() {
             try {
-                const response = await fetch('./jiaojiao.db');
-                if (!response.ok) throw new Error('数据库加载失败');
-                const buffer = await response.arrayBuffer();
-                // 使用全局配置的 initSqlJs
-                const SQL = await window.initSqlJs({
-                    locateFile: file => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/${file}`
-                });
-                return new SQL.Database(new Uint8Array(buffer));
+                const response = await fetch('./jiaojiao.json');
+                if (!response.ok) throw new Error('数据加载失败');
+                const data = await response.json();
+                console.log('✅ 数据加载成功');
+                return data;
             } catch (error) {
-                console.error('数据库加载错误：', error);
+                console.error('数据加载错误：', error);
                 return null;
             }
         }
 
         // 查询指定日期的数据（测试用：2026-06-06）
-        function getTodayData(db) {
+        function getTodayData(jsonData) {
             const today = '2026-06-06'; // 测试用固定日期
 
             // 今日喂养
-            const feedingResult = db.exec(`
-                SELECT start_time, end_time, duration_min, type
-                FROM feeding
-                WHERE date(start_time) = '${today}'
-                ORDER BY start_time DESC
-            `);
-            const feeding = feedingResult.length > 0 ? feedingResult[0].values : [];
+            const feeding = jsonData.data.feeding
+                .filter(item => item.start_time && item.start_time.startsWith(today))
+                .sort((a, b) => b.start_time.localeCompare(a.start_time))
+                .map(item => [item.start_time, item.end_time, item.duration_min, item.type]);
 
             // 今日睡眠
-            const sleepResult = db.exec(`
-                SELECT start_time, end_time, duration_min
-                FROM sleep
-                WHERE date(start_time) = '${today}'
-                ORDER BY start_time DESC
-            `);
-            const sleep = sleepResult.length > 0 ? sleepResult[0].values : [];
+            const sleep = jsonData.data.sleep
+                .filter(item => item.start_time && item.start_time.startsWith(today))
+                .sort((a, b) => b.start_time.localeCompare(a.start_time))
+                .map(item => [item.start_time, item.end_time, item.duration_min]);
 
             // 今日尿布
-            const diaperResult = db.exec(`
-                SELECT datetime, has_poop, has_pee, note
-                FROM diaper_change
-                WHERE date(datetime) = '${today}'
-                ORDER BY datetime DESC
-            `);
-            const diaper = diaperResult.length > 0 ? diaperResult[0].values : [];
+            const diaper = jsonData.data.diaper_change
+                .filter(item => item.datetime && item.datetime.startsWith(today))
+                .sort((a, b) => b.datetime.localeCompare(a.datetime))
+                .map(item => [item.datetime, item.has_poop, item.has_pee, item.note]);
 
             // 今日辅食
-            const foodResult = db.exec(`
-                SELECT start_time, food_name, amount_g
-                FROM solid_food
-                WHERE date(start_time) = '${today}'
-                ORDER BY start_time DESC
-            `);
-            const food = foodResult.length > 0 ? foodResult[0].values : [];
+            const food = jsonData.data.solid_food
+                .filter(item => item.start_time && item.start_time.startsWith(today))
+                .sort((a, b) => b.start_time.localeCompare(a.start_time))
+                .map(item => [item.start_time, item.food_name, item.amount_g]);
 
             // 最近体重
-            const weightResult = db.exec(`
-                SELECT date, weight_kg, height_cm
-                FROM weight
-                ORDER BY date DESC
-                LIMIT 1
-            `);
-            const weight = weightResult.length > 0 ? weightResult[0].values[0] : null;
+            const weightData = jsonData.data.weight
+                .sort((a, b) => b.date.localeCompare(a.date))[0];
+            const weight = weightData ? [weightData.date, weightData.weight_kg, weightData.height_cm] : null;
 
             return { feeding, sleep, diaper, food, weight };
         }
@@ -183,6 +163,13 @@
             const [loading, setLoading] = useState(true);
             const [allergenFoods, setAllergenFoods] = useState(null);
             const [showNameStory, setShowNameStory] = useState(false);
+            const [activeTab, setActiveTab] = useState('home');
+            const [wishes, setWishes] = useState([]);
+            const [newWish, setNewWish] = useState('');
+            const [editingWish, setEditingWish] = useState(null);
+
+            // NAS API 地址
+            const API_BASE_URL = 'http://192.168.31.127:3000';
 
             // 食材到emoji的映射
             const foodEmojiMap = {
@@ -211,22 +198,23 @@
                 oils: ['核桃油']
             };
 
-            // 从数据库解析排敏食物
-            const parseAllergenFoods = (db) => {
+            // 从JSON数据解析排敏食物
+            const parseAllergenFoods = (jsonData) => {
                 try {
-                    // 查询所有辅食记录
-                    const result = db.exec("SELECT food_name FROM solid_food WHERE food_name != '辅食内容'");
-                    if (result.length === 0) return null;
+                    // 获取所有辅食记录
+                    const solidFoodRecords = jsonData.data.solid_food || [];
 
                     // 提取所有食材（按+号分割）
                     const allIngredients = new Set();
-                    result[0].values.forEach(row => {
-                        const foods = row[0].split('+');
-                        foods.forEach(food => {
-                            // 去掉"泥"后缀，只保留核心食材名
-                            const cleaned = food.replace(/泥/g, '').trim();
-                            if (cleaned) allIngredients.add(cleaned);
-                        });
+                    solidFoodRecords.forEach(item => {
+                        if (item.food_name && item.food_name !== '辅食内容') {
+                            const foods = item.food_name.split('+');
+                            foods.forEach(food => {
+                                // 去掉"泥"后缀，只保留核心食材名
+                                const cleaned = food.replace(/泥/g, '').trim();
+                                if (cleaned) allIngredients.add(cleaned);
+                            });
+                        }
                     });
 
                     // 按类别分类
@@ -264,28 +252,31 @@
                 const diff = Math.ceil((today - birth) / (1000 * 60 * 60 * 24)) + 1;
                 setDays(diff);
 
-                // 加载数据库
+                // 加载数据
                 async function init() {
-                    console.log('🔄 开始加载数据库...');
-                    const database = await loadDatabase();
-                    if (database) {
-                        console.log('✅ 数据库加载成功');
-                        setDb(database);
+                    console.log('🔄 开始加载数据...');
+                    const jsonData = await loadData();
+                    if (jsonData) {
+                        console.log('✅ 数据加载成功');
+                        setDb(jsonData);
 
                         // 解析排敏食物
-                        const foods = parseAllergenFoods(database);
+                        const foods = parseAllergenFoods(jsonData);
                         setAllergenFoods(foods);
                         console.log('🥦 排敏食物：', foods);
 
-                        const data = getTodayData(database);
+                        const data = getTodayData(jsonData);
                         setTodayData(data);
                         console.log('📊 今日数据：', data);
                     } else {
-                        console.error('❌ 数据库加载失败');
+                        console.error('❌ 数据加载失败');
                     }
                     setLoading(false);
                 }
                 init();
+
+                // 加载心愿列表
+                fetchWishes();
             }, []);
 
             // 计算月龄
@@ -333,6 +324,60 @@
             const zodiac = getZodiac();
             const chineseZodiac = getChineseZodiac();
 
+            // 获取心愿列表
+            const fetchWishes = async () => {
+                try {
+                    const response = await fetch(`${API_BASE_URL}/api/wishes`);
+                    const data = await response.json();
+                    setWishes(data);
+                    console.log('💝 心愿列表：', data);
+                } catch (error) {
+                    console.error('获取心愿失败：', error);
+                }
+            };
+
+            // 添加心愿
+            const addWish = async () => {
+                if (!newWish.trim()) return;
+                try {
+                    const response = await fetch(`${API_BASE_URL}/api/wishes`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ title: newWish, category: '亲子' })
+                    });
+                    if (response.ok) {
+                        setNewWish('');
+                        fetchWishes();
+                    }
+                } catch (error) {
+                    console.error('添加心愿失败：', error);
+                }
+            };
+
+            // 切换完成状态
+            const toggleWish = async (wish) => {
+                try {
+                    await fetch(`${API_BASE_URL}/api/wishes/${wish.id}`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ ...wish, completed: wish.completed ? 0 : 1 })
+                    });
+                    fetchWishes();
+                } catch (error) {
+                    console.error('更新心愿失败：', error);
+                }
+            };
+
+            // 删除心愿
+            const deleteWish = async (id) => {
+                try {
+                    await fetch(`${API_BASE_URL}/api/wishes/${id}`, { method: 'DELETE' });
+                    fetchWishes();
+                } catch (error) {
+                    console.error('删除心愿失败：', error);
+                }
+            };
+
             return (
                 <div className="min-h-screen bg-[#FFFDE7] relative overflow-hidden">
                     {/* 孟菲斯装饰元素 */}
@@ -349,236 +394,261 @@
                         <path d="M0,50 Q100,0 200,50 T400,50 L400,0 L0,0 Z" fill="#4ECDC4"/>
                     </svg>
 
-                    {/* 主要内容 */}
-                    <div className="relative z-10 px-5 py-8 max-w-md mx-auto">
-                        {/* 顶部头像区域 */}
-                        <div
-                            className="flex flex-col items-center mb-8"
-                            style={{ animation: 'fadeInUp 0.6s ease-out' }}
-                        >
-                            {/* 浮动头像 */}
-                            <div className="relative mb-4">
-                                {/* 装饰圆环 */}
-                                <div className="absolute -inset-3 rounded-full border-4 border-dashed border-memphis-yellow opacity-60"
-                                    style={{ animation: 'spin-slow 20s linear infinite' }} />
+                    {/* 主要内容区域 */}
+                    <div className="relative z-10 px-5 pt-8 pb-24 max-w-md mx-auto min-h-screen">
+                        {/* 首页Tab */}
+                        {activeTab === 'home' && (
+                            <>
+                                {/* 顶部头像区域 */}
+                                <div className="flex flex-col items-center mb-8" style={{ animation: 'fadeInUp 0.6s ease-out' }}>
+                                    {/* 浮动头像 */}
+                                    <div className="relative mb-4">
+                                        <div className="absolute -inset-3 rounded-full border-4 border-dashed border-memphis-yellow opacity-60"
+                                            style={{ animation: 'spin-slow 20s linear infinite' }} />
+                                        <div className="w-36 h-36 rounded-full bg-gradient-to-br from-memphis-pink via-memphis-yellow to-memphis-teal p-1.5 shadow-lg"
+                                            style={{ animation: 'float 4s ease-in-out infinite' }}>
+                                            <div className="w-full h-full rounded-full bg-white p-1">
+                                                <img src={BABY_PHOTO_URL} alt="蕉大王" className="w-full h-full rounded-full object-cover" />
+                                            </div>
+                                        </div>
+                                        <div className="absolute -top-2 -right-2 text-3xl bounce-animation">👑</div>
+                                    </div>
+                                    <h1 className="text-2xl font-bold text-memphis-dark mb-1">蕉大王</h1>
+                                    <p className="text-sm text-gray-400 font-medium">今天也是元气满满的一天！</p>
+                                </div>
 
-                                {/* 头像容器 */}
-                                <div
-                                    className="w-36 h-36 rounded-full bg-gradient-to-br from-memphis-pink via-memphis-yellow to-memphis-teal p-1.5 shadow-lg"
-                                    style={{ animation: 'float 4s ease-in-out infinite' }}
-                                >
-                                    <div className="w-full h-full rounded-full bg-white p-1">
-                                        <img
-                                            src={BABY_PHOTO_URL}
-                                            alt="蕉大王"
-                                            className="w-full h-full rounded-full object-cover"
+                                {/* 年龄卡片 */}
+                                <div className="bg-white rounded-3xl p-6 mb-5 border-3 border-memphis-dark shadow-[6px_6px_0_#374151]"
+                                    style={{ animation: 'fadeInUp 0.6s ease-out 0.1s both', borderWidth: '3px' }}>
+                                    <div className="text-center">
+                                        <p className="text-sm text-gray-400 mb-2 font-medium">已经出生</p>
+                                        <div className="flex items-baseline justify-center gap-2">
+                                            <span className="text-5xl font-bold text-memphis-pink">{age.months}</span>
+                                            <span className="text-lg text-memphis-dark font-semibold">个月</span>
+                                            <span className="text-5xl font-bold text-memphis-teal">{age.days}</span>
+                                            <span className="text-lg text-memphis-dark font-semibold">天</span>
+                                        </div>
+                                        <div className="mt-2 text-2xl font-bold text-memphis-dark">{days} 天龄</div>
+                                        <div className="mt-3 text-sm text-gray-500">
+                                            {zodiac.emoji} {zodiac.name} · {chineseZodiac.emoji} {chineseZodiac.name}年
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* 名字故事卡片 */}
+                                <div className="rounded-3xl p-5 mb-5 border-3 border-memphis-dark shadow-[6px_6px_0_#374151] cursor-pointer hover:shadow-[8px_8px_0_#374151] hover:translate-x-[-2px] hover:translate-y-[-2px] transition-all duration-200"
+                                    style={{ animation: 'fadeInUp 0.6s ease-out 0.15s both', borderWidth: '3px', background: 'linear-gradient(135deg, #FFE4E6 0%, #FFF9C4 100%)' }}
+                                    onClick={() => setShowNameStory(!showNameStory)}>
+                                    <div className="flex items-center justify-between mb-3">
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-lg">📖</span>
+                                            <span className="font-bold text-memphis-dark">名字的故事</span>
+                                        </div>
+                                        <span className="text-memphis-dark transition-transform duration-200" style={{ transform: showNameStory ? 'rotate(180deg)' : 'rotate(0deg)' }}>▼</span>
+                                    </div>
+                                    <div className="flex items-center gap-3">
+                                        <div className="bg-memphis-yellow rounded-xl px-4 py-2 border-2 border-memphis-dark">
+                                            <span className="font-bold text-memphis-dark text-lg">吴系舟</span>
+                                        </div>
+                                        <div className="text-sm text-gray-500">小名：蕉蕉 / 蕉大王</div>
+                                    </div>
+                                    {showNameStory && (
+                                        <div className="mt-4 pt-4 border-t border-gray-100">
+                                            <div className="mb-4">
+                                                <div className="text-sm font-semibold text-memphis-dark mb-2">📜 出处</div>
+                                                <div className="text-sm text-gray-600 italic pl-3 border-l-3 border-memphis-yellow">《庄子》</div>
+                                                <div className="text-sm text-gray-600 italic pl-3 mt-1">「一饱食而遨游，泛若不系之舟，虚而遨游者也。」</div>
+                                            </div>
+                                            <div>
+                                                <div className="text-sm font-semibold text-memphis-dark mb-2">💝 父母寄愿</div>
+                                                <div className="text-sm text-gray-600 leading-relaxed pl-3 border-l-3 border-memphis-teal">
+                                                    愿你如没有绳索的小船，自己把握航向，探索世界无拘无束，自在乘风随处可泊，亦可随时启航。
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* 查询历史记录按钮 - 已移至底部Tab */}
+                            </>
+                        )}
+
+                        {/* 排敏Tab */}
+                        {activeTab === 'allergen' && (
+                            <div style={{ animation: 'fadeInUp 0.3s ease-out' }}>
+                                <div className="flex items-center justify-between mb-6">
+                                    <h2 className="text-xl font-bold text-memphis-dark">已排敏食物</h2>
+                                    <span className="text-sm text-memphis-dark font-bold tracking-wide">
+                                        共{allergenFoods ? (allergenFoods.grains.length + allergenFoods.vegetables.length + allergenFoods.protein.length + allergenFoods.oils.length) : 0}种
+                                    </span>
+                                </div>
+                                {allergenFoods && (
+                                    <div className="space-y-3">
+                                        {allergenFoods.grains.length > 0 && (
+                                            <div className="food-card bg-[#F97316] rounded-2xl p-4 border-2 border-memphis-dark shadow-[4px_4px_0_#374151]" style={{ '--rotate': '-2deg' }}>
+                                                <div className="font-bold text-white text-lg mb-3">谷物类 ({allergenFoods.grains.length})</div>
+                                                <div className="flex flex-wrap gap-2">
+                                                    {allergenFoods.grains.map((food, i) => (
+                                                        <span key={i} className="bg-white/90 px-3 py-1.5 rounded-full text-sm font-medium text-memphis-dark">{food.emoji} {food.name}</span>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+                                        {allergenFoods.vegetables.length > 0 && (
+                                            <div className="food-card bg-[#22C55E] rounded-2xl p-4 border-2 border-memphis-dark shadow-[4px_4px_0_#374151]" style={{ '--rotate': '2deg' }}>
+                                                <div className="font-bold text-white text-lg mb-3">蔬菜类 ({allergenFoods.vegetables.length})</div>
+                                                <div className="flex flex-wrap gap-2">
+                                                    {allergenFoods.vegetables.map((food, i) => (
+                                                        <span key={i} className="bg-white/90 px-3 py-1.5 rounded-full text-sm font-medium text-memphis-dark">{food.emoji} {food.name}</span>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+                                        {allergenFoods.protein.length > 0 && (
+                                            <div className="food-card bg-[#EF4444] rounded-2xl p-4 border-2 border-memphis-dark shadow-[4px_4px_0_#374151]" style={{ '--rotate': '-2deg' }}>
+                                                <div className="font-bold text-white text-lg mb-3">肉禽海鲜类 ({allergenFoods.protein.length})</div>
+                                                <div className="flex flex-wrap gap-2">
+                                                    {allergenFoods.protein.map((food, i) => (
+                                                        <span key={i} className="bg-white/90 px-3 py-1.5 rounded-full text-sm font-medium text-memphis-dark">{food.emoji} {food.name}</span>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+                                        {allergenFoods.oils.length > 0 && (
+                                            <div className="food-card bg-memphis-yellow rounded-2xl p-4 border-2 border-memphis-dark shadow-[4px_4px_0_#374151]" style={{ '--rotate': '2deg' }}>
+                                                <div className="font-bold text-memphis-dark text-lg mb-3">油脂类 ({allergenFoods.oils.length})</div>
+                                                <div className="flex flex-wrap gap-2">
+                                                    {allergenFoods.oils.map((food, i) => (
+                                                        <span key={i} className="bg-white/90 px-3 py-1.5 rounded-full text-sm font-medium text-memphis-dark">{food.emoji} {food.name}</span>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        {/* 心愿Tab */}
+                        {activeTab === 'wish' && (
+                            <div style={{ animation: 'fadeInUp 0.3s ease-out' }}>
+                                <h2 className="text-xl font-bold text-memphis-dark mb-6">💝 心愿清单</h2>
+
+                                {/* 添加心愿输入框 */}
+                                <div className="bg-white rounded-3xl p-4 mb-4 border-3 border-memphis-dark shadow-[6px_6px_0_#374151]"
+                                    style={{ borderWidth: '3px' }}>
+                                    <div className="flex gap-2">
+                                        <input
+                                            type="text"
+                                            value={newWish}
+                                            onChange={(e) => setNewWish(e.target.value)}
+                                            onKeyPress={(e) => e.key === 'Enter' && addWish()}
+                                            placeholder="写下想和蕉蕉一起做的事..."
+                                            className="flex-1 px-4 py-2 rounded-xl border-2 border-gray-200 focus:border-memphis-pink focus:outline-none text-sm"
                                         />
+                                        <button
+                                            onClick={addWish}
+                                            className="px-4 py-2 bg-memphis-pink text-white rounded-xl font-semibold hover:bg-pink-400 transition-colors"
+                                        >
+                                            添加
+                                        </button>
                                     </div>
                                 </div>
 
-                                {/* 皇冠装饰 */}
-                                <div className="absolute -top-2 -right-2 text-3xl bounce-animation">
-                                    👑
-                                </div>
-                            </div>
-
-                            {/* 名字 */}
-                            <h1 className="text-2xl font-bold text-memphis-dark mb-1">
-                                蕉大王
-                            </h1>
-                            <p className="text-sm text-gray-400 font-medium">
-                                今天也是元气满满的一天！
-                            </p>
-                        </div>
-
-                        {/* 年龄卡片 */}
-                        <div
-                            className="bg-white rounded-3xl p-6 mb-5 border-3 border-memphis-dark shadow-[6px_6px_0_#374151]"
-                            style={{
-                                animation: 'fadeInUp 0.6s ease-out 0.1s both',
-                                borderWidth: '3px',
-                            }}
-                        >
-                            <div className="text-center">
-                                <p className="text-sm text-gray-400 mb-2 font-medium">已经出生</p>
-                                <div className="flex items-baseline justify-center gap-2">
-                                    <span className="text-5xl font-bold text-memphis-pink">{age.months}</span>
-                                    <span className="text-lg text-memphis-dark font-semibold">个月</span>
-                                    <span className="text-5xl font-bold text-memphis-teal">{age.days}</span>
-                                    <span className="text-lg text-memphis-dark font-semibold">天</span>
-                                </div>
-                                <div className="mt-2 text-2xl font-bold text-memphis-dark">
-                                    {days} 天龄
-                                </div>
-                                <div className="mt-3 text-sm text-gray-500">
-                                    {zodiac.emoji} {zodiac.name} · {chineseZodiac.emoji} {chineseZodiac.name}年
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* 名字故事卡片 */}
-                        <div
-                            className="rounded-3xl p-5 mb-5 border-3 border-memphis-dark shadow-[6px_6px_0_#374151] cursor-pointer hover:shadow-[8px_8px_0_#374151] hover:translate-x-[-2px] hover:translate-y-[-2px] transition-all duration-200"
-                            style={{
-                                animation: 'fadeInUp 0.6s ease-out 0.15s both',
-                                borderWidth: '3px',
-                                background: 'linear-gradient(135deg, #FFE4E6 0%, #FFF9C4 100%)',
-                            }}
-                            onClick={() => setShowNameStory(!showNameStory)}
-                        >
-                            <div className="flex items-center justify-between mb-3">
-                                <div className="flex items-center gap-2">
-                                    <span className="text-lg">📖</span>
-                                    <span className="font-bold text-memphis-dark">名字的故事</span>
-                                </div>
-                                <span className="text-memphis-dark transition-transform duration-200" style={{ transform: showNameStory ? 'rotate(180deg)' : 'rotate(0deg)' }}>
-                                    ▼
-                                </span>
-                            </div>
-
-                            {/* 简短信息（始终显示） */}
-                            <div className="flex items-center gap-3">
-                                <div className="bg-memphis-yellow rounded-xl px-4 py-2 border-2 border-memphis-dark">
-                                    <span className="font-bold text-memphis-dark text-lg">吴系舟</span>
-                                </div>
-                                <div className="text-sm text-gray-500">
-                                    小名：蕉蕉 / 蕉大王
-                                </div>
-                            </div>
-
-                            {/* 展开的详细内容 */}
-                            {showNameStory && (
-                                <div className="mt-4 pt-4 border-t border-gray-100">
-                                    <div className="mb-4">
-                                        <div className="text-sm font-semibold text-memphis-dark mb-2">📜 出处</div>
-                                        <div className="text-sm text-gray-600 italic pl-3 border-l-3 border-memphis-yellow">
-                                            《庄子》
+                                {/* 心愿列表 */}
+                                <div className="space-y-3">
+                                    {wishes.length === 0 ? (
+                                        <div className="bg-white rounded-3xl p-6 border-3 border-memphis-dark shadow-[6px_6px_0_#374151] text-center"
+                                            style={{ borderWidth: '3px' }}>
+                                            <div className="text-4xl mb-4">🎯</div>
+                                            <p className="text-gray-500 font-medium">还没有心愿</p>
+                                            <p className="text-sm text-gray-400 mt-2">在上方输入框添加第一个心愿吧！</p>
                                         </div>
-                                        <div className="text-sm text-gray-600 italic pl-3 mt-1">
-                                            「一饱食而遨游，泛若不系之舟，虚而遨游者也。」
-                                        </div>
-                                    </div>
-
-                                    <div>
-                                        <div className="text-sm font-semibold text-memphis-dark mb-2">💝 父母寄愿</div>
-                                        <div className="text-sm text-gray-600 leading-relaxed pl-3 border-l-3 border-memphis-teal">
-                                            愿你如没有绳索的小船，自己把握航向，探索世界无拘无束，自在乘风随处可泊，亦可随时启航。
-                                        </div>
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-
-                        {/* 已排敏食物 */}
-                        <div style={{ animation: 'fadeInUp 0.6s ease-out 0.2s both' }}>
-                            <div className="flex items-center justify-between mb-4">
-                                <div className="flex items-center gap-2">
-                                    <span className="text-lg">📋</span>
-                                    <span className="font-bold text-memphis-dark">已排敏食物</span>
-                                </div>
-                                <span className="text-sm text-memphis-dark font-bold tracking-wide">
-                                    共{allergenFoods ?
-                                        (allergenFoods.grains.length + allergenFoods.vegetables.length +
-                                         allergenFoods.protein.length + allergenFoods.oils.length) : 0}种
-                                </span>
-                            </div>
-
-                            {allergenFoods && (
-                                <>
-                                    {/* 谷物类卡片 - 橙色 */}
-                                    {allergenFoods.grains.length > 0 && (
-                                        <div className="food-card bg-[#F97316] rounded-2xl p-4 mb-3 border-2 border-memphis-dark shadow-[4px_4px_0_#374151] cursor-pointer"
-                                            style={{ '--rotate': '-2deg' }}>
-                                            <div className="flex items-center gap-2 mb-3">
-                                                <span className="font-bold text-white text-lg">谷物类</span>
-                                                <span className="text-sm text-white/80 font-bold">({allergenFoods.grains.length})</span>
+                                    ) : (
+                                        wishes.map((wish) => (
+                                            <div key={wish.id}
+                                                className={`bg-white rounded-2xl p-4 border-2 border-memphis-dark shadow-[4px_4px_0_#374151] transition-all ${
+                                                    wish.completed ? 'opacity-60' : ''
+                                                }`}
+                                            >
+                                                <div className="flex items-start gap-3">
+                                                    <button
+                                                        onClick={() => toggleWish(wish)}
+                                                        className={`w-6 h-6 rounded-full border-2 flex items-center justify-center flex-shrink-0 mt-0.5 transition-all ${
+                                                            wish.completed
+                                                                ? 'bg-memphis-teal border-memphis-teal text-white'
+                                                                : 'border-gray-300 hover:border-memphis-teal'
+                                                        }`}
+                                                    >
+                                                        {wish.completed ? '✓' : ''}
+                                                    </button>
+                                                    <div className="flex-1 min-w-0">
+                                                        <p className={`font-medium ${wish.completed ? 'line-through text-gray-400' : 'text-memphis-dark'}`}>
+                                                            {wish.title}
+                                                        </p>
+                                                        {wish.description && (
+                                                            <p className="text-sm text-gray-400 mt-1">{wish.description}</p>
+                                                        )}
+                                                        <div className="flex items-center gap-2 mt-2">
+                                                            <span className="text-xs px-2 py-0.5 bg-memphis-yellow rounded-full text-memphis-dark">
+                                                                {wish.category}
+                                                            </span>
+                                                        </div>
+                                                    </div>
+                                                    <button
+                                                        onClick={() => deleteWish(wish.id)}
+                                                        className="text-gray-400 hover:text-red-500 transition-colors p-1"
+                                                    >
+                                                        🗑️
+                                                    </button>
+                                                </div>
                                             </div>
-                                            <div className="flex flex-wrap gap-2">
-                                                {allergenFoods.grains.map((food, i) => (
-                                                    <span key={i} className="bg-white/90 px-3 py-1.5 rounded-full text-sm font-medium text-memphis-dark">
-                                                        {food.emoji} {food.name}
-                                                    </span>
-                                                ))}
-                                            </div>
-                                        </div>
+                                        ))
                                     )}
+                                </div>
+                            </div>
+                        )}
 
-                                    {/* 蔬菜类卡片 - 绿色 */}
-                                    {allergenFoods.vegetables.length > 0 && (
-                                        <div className="food-card bg-[#22C55E] rounded-2xl p-4 mb-3 border-2 border-memphis-dark shadow-[4px_4px_0_#374151] cursor-pointer"
-                                            style={{ '--rotate': '2deg' }}>
-                                            <div className="flex items-center gap-2 mb-3">
-                                                <span className="font-bold text-white text-lg">蔬菜类</span>
-                                                <span className="text-sm text-white/80 font-bold">({allergenFoods.vegetables.length})</span>
-                                            </div>
-                                            <div className="flex flex-wrap gap-2">
-                                                {allergenFoods.vegetables.map((food, i) => (
-                                                    <span key={i} className="bg-white/90 px-3 py-1.5 rounded-full text-sm font-medium text-memphis-dark">
-                                                        {food.emoji} {food.name}
-                                                    </span>
-                                                ))}
-                                            </div>
-                                        </div>
-                                    )}
+                        {/* 查询Tab */}
+                        {activeTab === 'query' && (
+                            <div style={{ animation: 'fadeInUp 0.3s ease-out' }}>
+                                <h2 className="text-xl font-bold text-memphis-dark mb-6">🔍 查询历史记录</h2>
+                                <div className="bg-white rounded-3xl p-6 border-3 border-memphis-dark shadow-[6px_6px_0_#374151] text-center"
+                                    style={{ borderWidth: '3px' }}>
+                                    <div className="text-4xl mb-4">📊</div>
+                                    <p className="text-gray-500 font-medium">功能开发中</p>
+                                    <p className="text-sm text-gray-400 mt-2">历史记录查询功能即将上线...</p>
+                                </div>
+                            </div>
+                        )}
+                    </div>
 
-                                    {/* 肉禽海鲜类卡片 - 红色 */}
-                                    {allergenFoods.protein.length > 0 && (
-                                        <div className="food-card bg-[#EF4444] rounded-2xl p-4 mb-3 border-2 border-memphis-dark shadow-[4px_4px_0_#374151] cursor-pointer"
-                                            style={{ '--rotate': '-2deg' }}>
-                                            <div className="flex items-center gap-2 mb-3">
-                                                <span className="font-bold text-white text-lg">肉禽海鲜类</span>
-                                                <span className="text-sm text-white/80 font-bold">({allergenFoods.protein.length})</span>
-                                            </div>
-                                            <div className="flex flex-wrap gap-2">
-                                                {allergenFoods.protein.map((food, i) => (
-                                                    <span key={i} className="bg-white/90 px-3 py-1.5 rounded-full text-sm font-medium text-memphis-dark">
-                                                        {food.emoji} {food.name}
-                                                    </span>
-                                                ))}
-                                            </div>
-                                        </div>
-                                    )}
-
-                                    {/* 油脂类卡片 - 黄色 */}
-                                    {allergenFoods.oils.length > 0 && (
-                                        <div className="food-card bg-memphis-yellow rounded-2xl p-4 border-2 border-memphis-dark shadow-[4px_4px_0_#374151] cursor-pointer"
-                                            style={{ '--rotate': '2deg' }}>
-                                            <div className="flex items-center gap-2 mb-3">
-                                                <span className="font-bold text-memphis-dark text-lg">油脂类</span>
-                                                <span className="text-sm text-memphis-dark/80 font-bold">({allergenFoods.oils.length})</span>
-                                            </div>
-                                            <div className="flex flex-wrap gap-2">
-                                                {allergenFoods.oils.map((food, i) => (
-                                                    <span key={i} className="bg-white/90 px-3 py-1.5 rounded-full text-sm font-medium text-memphis-dark">
-                                                        {food.emoji} {food.name}
-                                                    </span>
-                                                ))}
-                                            </div>
-                                        </div>
-                                    )}
-                                </>
-                            )}
-                        </div>
-
-                        {/* 功能入口 */}
-                        <div
-                            className="bg-white rounded-3xl p-5 border-3 border-memphis-dark shadow-[6px_6px_0_#374151]"
-                            style={{
-                                animation: 'fadeInUp 0.6s ease-out 0.2s both',
-                                borderWidth: '3px',
-                            }}
-                        >
-                            <button className="w-full flex items-center justify-center gap-2 p-4 bg-memphis-teal rounded-2xl border-2 border-memphis-dark shadow-[3px_3px_0_#374151] hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-[1px_1px_0_#374151] transition-all">
-                                <span className="text-xl">🔍</span>
-                                <span className="font-bold text-white">查询历史记录</span>
-                            </button>
-                        </div>
-
-                        {/* 底部装饰文字 */}
-                        <div className="text-center mt-8">
-                            <span className="inline-block px-4 py-2 bg-memphis-pink text-white text-xs font-semibold rounded-full shadow-[3px_3px_0_#374151] border-2 border-memphis-dark">
-                                ✦ GROWTH RECORD ✦
-                            </span>
+                    {/* 底部Tab导航栏 */}
+                    <div className="fixed bottom-0 left-0 right-0 z-50 pb-2" style={{ paddingBottom: 'max(8px, env(safe-area-inset-bottom))' }}>
+                        <div className="px-5 max-w-md mx-auto">
+                            <div className="bg-white rounded-2xl border-2 border-memphis-dark shadow-[4px_4px_0_#374151] overflow-hidden">
+                                <div className="flex">
+                                    {[
+                                        { id: 'home', icon: '🏠', label: '首页' },
+                                        { id: 'allergen', icon: '🥦', label: '排敏' },
+                                        { id: 'wish', icon: '💝', label: '心愿' },
+                                        { id: 'query', icon: '🔍', label: '查询' },
+                                    ].map(tab => (
+                                        <button
+                                            key={tab.id}
+                                            onClick={() => setActiveTab(tab.id)}
+                                            className={`flex-1 flex flex-col items-center py-2.5 transition-all duration-200 ${
+                                                activeTab === tab.id
+                                                    ? 'bg-memphis-yellow text-memphis-dark'
+                                                    : 'text-gray-500 hover:bg-gray-50'
+                                            }`}
+                                        >
+                                            <span className="text-lg mb-0.5">{tab.icon}</span>
+                                            <span className="text-[10px] font-semibold">{tab.label}</span>
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
