@@ -85,7 +85,7 @@
         // 数据库加载函数
         async function loadDatabase() {
             try {
-                const response = await fetch('./数据/jiaojiao.db');
+                const response = await fetch('./jiaojiao.db');
                 if (!response.ok) throw new Error('数据库加载失败');
                 const buffer = await response.arrayBuffer();
                 // 使用全局配置的 initSqlJs
