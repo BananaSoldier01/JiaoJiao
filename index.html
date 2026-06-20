@@ -176,29 +176,90 @@
 
             // 食材到emoji的映射
             const foodEmojiMap = {
+                // 谷物类
                 '米粉': '🍚',
                 '大米粥': '🥣',
+                '胚芽米粥': '🥣',
+                '玉米': '🌽',
+                // 蔬菜类
                 '南瓜': '🎃',
                 '土豆': '🥔',
                 '胡萝卜': '🥕',
                 '菠菜': '🥬',
+                '青菜': '🥬',
                 '西兰花': '🥦',
                 '西蓝花': '🥦',
                 '紫甘蓝': '🥗',
                 '山药': '🥔',
+                // 肉禽海鲜类
                 '蛋黄': '🥚',
                 '鸡蛋': '🥚',
                 '猪肉': '🥩',
                 '牛肉': '🍖',
+                // 油脂类
                 '核桃油': '🫒',
+                // 菌菇类
+                '平菇': '🍄',
+                '香菇': '🍄',
+                '金针菇': '🍄',
+                // 豆制品类
+                '豆腐': '🧈',
+                '豆浆': '🥛',
+                // 水果类
+                '香蕉': '🍌',
+                '苹果': '🍎',
+                '梨': '🍐',
+                '蓝莓': '🫐',
+                '草莓': '🍓',
             };
 
-            // 食材分类规则
-            const categoryRules = {
-                grains: ['米粉', '大米粥'],
-                vegetables: ['南瓜', '土豆', '胡萝卜', '菠菜', '西兰花', '西蓝花', '紫甘蓝', '山药'],
-                protein: ['蛋黄', '鸡蛋', '猪肉', '牛肉'],
-                oils: ['核桃油']
+            // 从NAS API获取排敏食物
+            const fetchAllergenFoods = async () => {
+                try {
+                    const response = await fetch(`${API_BASE_URL}/api/allergen-foods`);
+                    const data = await response.json();
+
+                    // 转换为前端需要的格式
+                    const categorized = {
+                        grains: (data.categories.grains || []).map(name => ({
+                            name,
+                            emoji: foodEmojiMap[name] || '🍽️'
+                        })),
+                        vegetables: (data.categories.vegetables || []).map(name => ({
+                            name,
+                            emoji: foodEmojiMap[name] || '🍽️'
+                        })),
+                        protein: (data.categories.protein || []).map(name => ({
+                            name,
+                            emoji: foodEmojiMap[name] || '🍽️'
+                        })),
+                        oils: (data.categories.oils || []).map(name => ({
+                            name,
+                            emoji: foodEmojiMap[name] || '🍽️'
+                        })),
+                        mushrooms: (data.categories.mushrooms || []).map(name => ({
+                            name,
+                            emoji: foodEmojiMap[name] || '🍽️'
+                        })),
+                        bean_products: (data.categories.bean_products || []).map(name => ({
+                            name,
+                            emoji: foodEmojiMap[name] || '🍽️'
+                        })),
+                        fruits: (data.categories.fruits || []).map(name => ({
+                            name,
+                            emoji: foodEmojiMap[name] || '🍽️'
+                        })),
+                        other: (data.categories.other || []).map(name => ({
+                            name,
+                            emoji: foodEmojiMap[name] || '🍽️'
+                        }))
+                    };
+
+                    return categorized;
+                } catch (error) {
+                    console.error('获取排敏食物失败：', error);
+                    return null;
+                }
             };
 
             // 从JSON数据解析排敏食物
@@ -258,22 +319,16 @@
                 // 加载数据
                 async function init() {
                     console.log('🔄 开始加载数据...');
-                    const jsonData = await loadData();
-                    if (jsonData) {
-                        console.log('✅ 数据加载成功');
-                        setDb(jsonData);
 
-                        // 解析排敏食物
-                        const foods = parseAllergenFoods(jsonData);
+                    // 从NAS API获取排敏食物
+                    const foods = await fetchAllergenFoods();
+                    if (foods) {
                         setAllergenFoods(foods);
                         console.log('🥦 排敏食物：', foods);
-
-                        const data = getTodayData(jsonData);
-                        setTodayData(data);
-                        console.log('📊 今日数据：', data);
                     } else {
-                        console.error('❌ 数据加载失败');
+                        console.error('❌ 获取排敏食物失败');
                     }
+
                     setLoading(false);
                 }
                 init();
@@ -508,7 +563,7 @@
                                 <div className="flex items-center justify-between mb-6">
                                     <h2 className="text-xl font-bold text-memphis-dark">已排敏食物</h2>
                                     <span className="text-sm text-memphis-dark font-bold tracking-wide">
-                                        共{allergenFoods ? (allergenFoods.grains.length + allergenFoods.vegetables.length + allergenFoods.protein.length + allergenFoods.oils.length) : 0}种
+                                        共{allergenFoods ? (allergenFoods.grains.length + allergenFoods.vegetables.length + allergenFoods.protein.length + allergenFoods.oils.length + allergenFoods.mushrooms.length + allergenFoods.bean_products.length + allergenFoods.fruits.length) : 0}种
                                     </span>
                                 </div>
                                 {allergenFoods && (
@@ -548,6 +603,46 @@
                                                 <div className="font-bold text-memphis-dark text-lg mb-3">油脂类 ({allergenFoods.oils.length})</div>
                                                 <div className="flex flex-wrap gap-2">
                                                     {allergenFoods.oils.map((food, i) => (
+                                                        <span key={i} className="bg-white/90 px-3 py-1.5 rounded-full text-sm font-medium text-memphis-dark">{food.emoji} {food.name}</span>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+                                        {allergenFoods.mushrooms.length > 0 && (
+                                            <div className="food-card bg-amber-100 rounded-2xl p-4 border-2 border-memphis-dark shadow-[4px_4px_0_#374151]" style={{ '--rotate': '-2deg' }}>
+                                                <div className="font-bold text-memphis-dark text-lg mb-3">菌菇类 ({allergenFoods.mushrooms.length})</div>
+                                                <div className="flex flex-wrap gap-2">
+                                                    {allergenFoods.mushrooms.map((food, i) => (
+                                                        <span key={i} className="bg-white/90 px-3 py-1.5 rounded-full text-sm font-medium text-memphis-dark">{food.emoji} {food.name}</span>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+                                        {allergenFoods.bean_products.length > 0 && (
+                                            <div className="food-card bg-orange-100 rounded-2xl p-4 border-2 border-memphis-dark shadow-[4px_4px_0_#374151]" style={{ '--rotate': '2deg' }}>
+                                                <div className="font-bold text-memphis-dark text-lg mb-3">豆制品类 ({allergenFoods.bean_products.length})</div>
+                                                <div className="flex flex-wrap gap-2">
+                                                    {allergenFoods.bean_products.map((food, i) => (
+                                                        <span key={i} className="bg-white/90 px-3 py-1.5 rounded-full text-sm font-medium text-memphis-dark">{food.emoji} {food.name}</span>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+                                        {allergenFoods.fruits.length > 0 && (
+                                            <div className="food-card bg-pink-100 rounded-2xl p-4 border-2 border-memphis-dark shadow-[4px_4px_0_#374151]" style={{ '--rotate': '-2deg' }}>
+                                                <div className="font-bold text-memphis-dark text-lg mb-3">水果类 ({allergenFoods.fruits.length})</div>
+                                                <div className="flex flex-wrap gap-2">
+                                                    {allergenFoods.fruits.map((food, i) => (
+                                                        <span key={i} className="bg-white/90 px-3 py-1.5 rounded-full text-sm font-medium text-memphis-dark">{food.emoji} {food.name}</span>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+                                        {allergenFoods.other.length > 0 && (
+                                            <div className="food-card bg-gray-100 rounded-2xl p-4 border-2 border-memphis-dark shadow-[4px_4px_0_#374151]" style={{ '--rotate': '2deg' }}>
+                                                <div className="font-bold text-memphis-dark text-lg mb-3">其他 ({allergenFoods.other.length})</div>
+                                                <div className="flex flex-wrap gap-2">
+                                                    {allergenFoods.other.map((food, i) => (
                                                         <span key={i} className="bg-white/90 px-3 py-1.5 rounded-full text-sm font-medium text-memphis-dark">{food.emoji} {food.name}</span>
                                                     ))}
                                                 </div>
