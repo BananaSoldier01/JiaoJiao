@@ -174,88 +174,14 @@
             // NAS API 地址（支持外网访问）
             const API_BASE_URL = 'https://1bg25629542vd.vicp.fun';
 
-            // 食材到emoji的映射
-            const foodEmojiMap = {
-                // 谷物类
-                '米粉': '🍚',
-                '大米粥': '🥣',
-                '胚芽米粥': '🥣',
-                '玉米': '🌽',
-                // 蔬菜类
-                '南瓜': '🎃',
-                '土豆': '🥔',
-                '胡萝卜': '🥕',
-                '菠菜': '🥬',
-                '青菜': '🥬',
-                '西兰花': '🥦',
-                '西蓝花': '🥦',
-                '紫甘蓝': '🥗',
-                '山药': '🥔',
-                // 肉禽海鲜类
-                '蛋黄': '🥚',
-                '鸡蛋': '🥚',
-                '猪肉': '🥩',
-                '牛肉': '🍖',
-                // 油脂类
-                '核桃油': '🫒',
-                // 菌菇类
-                '平菇': '🍄',
-                '香菇': '🍄',
-                '金针菇': '🍄',
-                // 豆制品类
-                '豆腐': '🧈',
-                '豆浆': '🥛',
-                // 水果类
-                '香蕉': '🍌',
-                '苹果': '🍎',
-                '梨': '🍐',
-                '蓝莓': '🫐',
-                '草莓': '🍓',
-            };
-
             // 从NAS API获取排敏食物
             const fetchAllergenFoods = async () => {
                 try {
                     const response = await fetch(`${API_BASE_URL}/api/allergen-foods`);
                     const data = await response.json();
 
-                    // 转换为前端需要的格式
-                    const categorized = {
-                        grains: (data.categories.grains || []).map(name => ({
-                            name,
-                            emoji: foodEmojiMap[name] || '🍽️'
-                        })),
-                        vegetables: (data.categories.vegetables || []).map(name => ({
-                            name,
-                            emoji: foodEmojiMap[name] || '🍽️'
-                        })),
-                        protein: (data.categories.protein || []).map(name => ({
-                            name,
-                            emoji: foodEmojiMap[name] || '🍽️'
-                        })),
-                        oils: (data.categories.oils || []).map(name => ({
-                            name,
-                            emoji: foodEmojiMap[name] || '🍽️'
-                        })),
-                        mushrooms: (data.categories.mushrooms || []).map(name => ({
-                            name,
-                            emoji: foodEmojiMap[name] || '🍽️'
-                        })),
-                        bean_products: (data.categories.bean_products || []).map(name => ({
-                            name,
-                            emoji: foodEmojiMap[name] || '🍽️'
-                        })),
-                        fruits: (data.categories.fruits || []).map(name => ({
-                            name,
-                            emoji: foodEmojiMap[name] || '🍽️'
-                        })),
-                        other: (data.categories.other || []).map(name => ({
-                            name,
-                            emoji: foodEmojiMap[name] || '🍽️'
-                        }))
-                    };
-
-                    return categorized;
+                    // 直接使用后端返回的数据（已包含emoji）
+                    return data.categories;
                 } catch (error) {
                     console.error('获取排敏食物失败：', error);
                     return null;
