@@ -259,8 +259,6 @@
                 }
                 init();
 
-                // 加载心愿列表
-                fetchWishes();
             }, []);
 
             // 计算月龄
@@ -309,14 +307,30 @@
             const chineseZodiac = getChineseZodiac();
 
             // 获取心愿列表
-            const fetchWishes = async () => {
+            const handleWishUnauthorized = (message = '密码错误') => {
+                setIsWishesVerified(false);
+                setWishes([]);
+                setVerifyError(message);
+            };
+
+            const fetchWishes = async (password = wishesPassword) => {
                 try {
-                    const response = await fetch(`${API_BASE_URL}/api/wishes`);
+                    const response = await fetch(`${API_BASE_URL}/api/wishes`, {
+                        headers: { 'X-Wishes-Password': password }
+                    });
+                    if (response.status === 401 || response.status === 429) {
+                        const data = await response.json();
+                        handleWishUnauthorized(data.error || '密码错误');
+                        return false;
+                    }
+                    if (!response.ok) throw new Error('获取心愿失败');
                     const data = await response.json();
                     setWishes(data);
-                    console.log('💝 心愿列表：', data);
+                    return true;
                 } catch (error) {
                     console.error('获取心愿失败：', error);
+                    setVerifyError('暂时无法连接心愿服务');
+                    return false;
                 }
             };
 
@@ -326,9 +340,17 @@
                 try {
                     const response = await fetch(`${API_BASE_URL}/api/wishes`, {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-Wishes-Password': wishesPassword
+                        },
                         body: JSON.stringify({ title: newWish, category: '亲子' })
                     });
+                    if (response.status === 401 || response.status === 429) {
+                        const data = await response.json();
+                        handleWishUnauthorized(data.error);
+                        return;
+                    }
                     if (response.ok) {
                         setNewWish('');
                         fetchWishes();
@@ -343,19 +365,38 @@
                 try {
                     await fetch(`${API_BASE_URL}/api/wishes/${wish.id}`, {
                         method: 'PUT',
-                        headers: { 'Content-Type': 'application/json' },
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-Wishes-Password': wishesPassword
+                        },
                         body: JSON.stringify({ ...wish, completed: wish.completed ? 0 : 1 })
+                    }).then(async response => {
+                        if (response.status === 401 || response.status === 429) {
+                            const data = await response.json();
+                            handleWishUnauthorized(data.error);
+                            throw new Error('unauthorized');
+                        }
+                        if (!response.ok) throw new Error('更新心愿失败');
                     });
                     fetchWishes();
                 } catch (error) {
-                    console.error('更新心愿失败：', error);
+                    if (error.message !== 'unauthorized') console.error('更新心愿失败：', error);
                 }
             };
 
             // 删除心愿
             const deleteWish = async (id) => {
                 try {
-                    await fetch(`${API_BASE_URL}/api/wishes/${id}`, { method: 'DELETE' });
+                    const response = await fetch(`${API_BASE_URL}/api/wishes/${id}`, {
+                        method: 'DELETE',
+                        headers: { 'X-Wishes-Password': wishesPassword }
+                    });
+                    if (response.status === 401 || response.status === 429) {
+                        const data = await response.json();
+                        handleWishUnauthorized(data.error);
+                        return;
+                    }
+                    if (!response.ok) throw new Error('删除心愿失败');
                     fetchWishes();
                 } catch (error) {
                     console.error('删除心愿失败：', error);
@@ -369,19 +410,10 @@
                     return;
                 }
                 try {
-                    const response = await fetch(`${API_BASE_URL}/api/verify-password`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ password: wishesPassword })
-                    });
-                    const data = await response.json();
-                    if (data.ok) {
+                    const verified = await fetchWishes(wishesPassword);
+                    if (verified) {
                         setIsWishesVerified(true);
                         setVerifyError('');
-                        // 密码验证通过后加载心愿列表
-                        fetchWishes();
-                    } else {
-                        setVerifyError(data.message || '密码错误');
                     }
                 } catch (error) {
                     setVerifyError('验证失败：' + error.message);
