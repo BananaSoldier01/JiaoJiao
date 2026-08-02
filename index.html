@@ -814,10 +814,10 @@
                                                 placeholder="搜索心愿..."
                                                 className="w-full px-4 py-2.5 rounded-xl border-2 border-gray-200 focus:border-memphis-pink focus:outline-none text-sm"
                                             />
-                                            <div className="flex gap-2 overflow-x-auto py-3 -mx-1 px-1" style={{ scrollbarWidth: 'none' }}>
+                                            <div className="flex flex-wrap gap-2 pt-3 pb-2">
                                                 <button
                                                     onClick={() => setWishCategoryFilter('all')}
-                                                    className={`flex-shrink-0 px-3 py-1.5 rounded-full text-sm font-semibold border-2 transition-colors ${wishCategoryFilter === 'all' ? 'bg-memphis-dark text-white border-memphis-dark' : 'bg-white text-gray-600 border-gray-200'}`}
+                                                    className={`px-3 py-1.5 rounded-full text-sm font-semibold border-2 transition-colors active:scale-[0.98] ${wishCategoryFilter === 'all' ? 'bg-memphis-dark text-white border-memphis-dark' : 'bg-white text-gray-600 border-gray-200'}`}
                                                 >
                                                     全部主题
                                                 </button>
@@ -825,7 +825,7 @@
                                                     <button
                                                         key={category.id}
                                                         onClick={() => setWishCategoryFilter(String(category.id))}
-                                                        className={`flex-shrink-0 px-3 py-1.5 rounded-full text-sm font-semibold border-2 transition-colors ${wishCategoryFilter === String(category.id) ? 'text-memphis-dark border-memphis-dark' : 'bg-white text-gray-600 border-gray-200'}`}
+                                                        className={`px-3 py-1.5 rounded-full text-sm font-semibold border-2 transition-colors active:scale-[0.98] ${wishCategoryFilter === String(category.id) ? 'text-memphis-dark border-memphis-dark' : 'bg-white text-gray-600 border-gray-200'}`}
                                                         style={wishCategoryFilter === String(category.id) ? { backgroundColor: category.color } : {}}
                                                     >
                                                         {category.name}
@@ -945,9 +945,9 @@
                                             </div>
                                         )}
 
-                                        <div className="grid gap-4 sm:grid-cols-2">
+                                        <div className="grid grid-cols-1 gap-4">
                                             {filteredWishes.length === 0 ? (
-                                                <div className="sm:col-span-2 bg-white rounded-3xl p-8 border-3 border-memphis-dark shadow-[6px_6px_0_#374151] text-center" style={{ borderWidth: '3px' }}>
+                                                <div className="bg-white rounded-3xl p-8 border-3 border-memphis-dark shadow-[6px_6px_0_#374151] text-center" style={{ borderWidth: '3px' }}>
                                                     <div className="text-4xl mb-4">🎯</div>
                                                     <p className="text-gray-500 font-medium">没有匹配的心愿</p>
                                                     <p className="text-sm text-gray-400 mt-2">换个主题或关键词试试吧</p>
@@ -961,19 +961,21 @@
                                                         <div className="flex items-start gap-3">
                                                             <button
                                                                 onClick={() => toggleWish(wish)}
-                                                                className={`w-6 h-6 rounded-full border-2 flex items-center justify-center flex-shrink-0 mt-0.5 transition-all ${wish.completed ? 'bg-memphis-teal border-memphis-teal text-white' : 'bg-white/70 border-gray-300 hover:border-memphis-teal'}`}
+                                                                className={`w-7 h-7 rounded-full border-2 flex items-center justify-center flex-shrink-0 mt-0.5 transition-all active:scale-[0.92] ${wish.completed ? 'bg-memphis-teal border-memphis-teal text-white' : 'bg-white/70 border-gray-300 hover:border-memphis-teal'}`}
                                                                 aria-label={wish.completed ? '标记为未完成' : '标记为完成'}
                                                             >
                                                                 {wish.completed ? '✓' : ''}
                                                             </button>
                                                             <div className="flex-1 min-w-0">
-                                                                <p className={`font-medium break-words ${wish.completed ? 'line-through text-gray-400' : 'text-memphis-dark'}`}>{wish.title}</p>
-                                                                {wish.description && <p className="text-sm text-gray-500 mt-1 break-words">{wish.description}</p>}
-                                                                <span className="inline-block text-xs px-2 py-0.5 mt-3 rounded-full text-memphis-dark font-medium" style={{ backgroundColor: wish.category_color || '#E5E7EB' }}>{wish.category}</span>
+                                                                <p className={`font-medium leading-relaxed break-words ${wish.completed ? 'line-through text-gray-400' : 'text-memphis-dark'}`}>{wish.title}</p>
+                                                                {wish.description && <p className="text-sm leading-relaxed text-gray-500 mt-1 break-words">{wish.description}</p>}
                                                             </div>
+                                                        </div>
+                                                        <div className="flex items-center justify-between gap-3 mt-3 pl-10">
+                                                            <span className="inline-block text-xs px-2.5 py-1 rounded-full text-memphis-dark font-medium" style={{ backgroundColor: wish.category_color || '#E5E7EB' }}>{wish.category}</span>
                                                             <div className="flex items-center gap-1 flex-shrink-0">
-                                                                <button onClick={() => openWishForm(wish)} className="text-gray-400 hover:text-memphis-dark transition-colors p-1" aria-label="编辑心愿">✎</button>
-                                                                <button onClick={() => deleteWish(wish.id)} className="text-gray-400 hover:text-red-500 transition-colors p-1" aria-label="删除心愿">🗑️</button>
+                                                                <button onClick={() => openWishForm(wish)} className="text-gray-400 hover:text-memphis-dark transition-colors px-2 py-1 rounded-lg active:scale-[0.92]" aria-label="编辑心愿">✎</button>
+                                                                <button onClick={() => deleteWish(wish.id)} className="text-gray-400 hover:text-red-500 transition-colors px-2 py-1 rounded-lg active:scale-[0.92]" aria-label="删除心愿">🗑️</button>
                                                             </div>
                                                         </div>
                                                     </div>
