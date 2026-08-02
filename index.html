@@ -165,11 +165,25 @@
             const [showNameStory, setShowNameStory] = useState(false);
             const [activeTab, setActiveTab] = useState('home');
             const [wishes, setWishes] = useState([]);
-            const [newWish, setNewWish] = useState('');
+            const [wishCategories, setWishCategories] = useState([]);
+            const [wishSearch, setWishSearch] = useState('');
+            const [wishCategoryFilter, setWishCategoryFilter] = useState('all');
+            const [wishStatusFilter, setWishStatusFilter] = useState('all');
+            const [wishFormOpen, setWishFormOpen] = useState(false);
+            const [wishFormTitle, setWishFormTitle] = useState('');
+            const [wishFormDescription, setWishFormDescription] = useState('');
+            const [wishFormCategoryId, setWishFormCategoryId] = useState('');
             const [editingWish, setEditingWish] = useState(null);
+            const [wishManagerOpen, setWishManagerOpen] = useState(false);
+            const [categoryDraftName, setCategoryDraftName] = useState('');
+            const [categoryDraftColor, setCategoryDraftColor] = useState('#FFE66D');
+            const [editingCategoryId, setEditingCategoryId] = useState(null);
             const [isWishesVerified, setIsWishesVerified] = useState(false);
             const [wishesPassword, setWishesPassword] = useState('');
             const [verifyError, setVerifyError] = useState('');
+            const [wishError, setWishError] = useState('');
+
+            const wishColors = ['#FF6B6B', '#4ECDC4', '#9B59B6', '#FFE66D', '#A7F3D0', '#FDBA74', '#93C5FD', '#F9A8D4', '#C4B5FD', '#CBD5E1'];
 
             // NAS API 地址（支持外网访问）
             const API_BASE_URL = 'https://1bg25629542vd.vicp.fun';
@@ -306,10 +320,11 @@
             const zodiac = getZodiac();
             const chineseZodiac = getChineseZodiac();
 
-            // 获取心愿列表
+            // 获取心愿列表与主题
             const handleWishUnauthorized = (message = '密码错误') => {
                 setIsWishesVerified(false);
                 setWishes([]);
+                setWishCategories([]);
                 setVerifyError(message);
             };
 
@@ -324,8 +339,7 @@
                         return false;
                     }
                     if (!response.ok) throw new Error('获取心愿失败');
-                    const data = await response.json();
-                    setWishes(data);
+                    setWishes(await response.json());
                     return true;
                 } catch (error) {
                     console.error('获取心愿失败：', error);
@@ -334,58 +348,118 @@
                 }
             };
 
-            // 添加心愿
-            const addWish = async () => {
-                if (!newWish.trim()) return;
+            const fetchWishCategories = async (password = wishesPassword) => {
                 try {
-                    const response = await fetch(`${API_BASE_URL}/api/wishes`, {
-                        method: 'POST',
+                    const response = await fetch(`${API_BASE_URL}/api/wish-categories`, {
+                        headers: { 'X-Wishes-Password': password }
+                    });
+                    if (response.status === 401 || response.status === 429) {
+                        const data = await response.json();
+                        handleWishUnauthorized(data.error || '密码错误');
+                        return false;
+                    }
+                    if (!response.ok) throw new Error('获取主题失败');
+                    setWishCategories(await response.json());
+                    return true;
+                } catch (error) {
+                    console.error('获取主题失败：', error);
+                    setWishError('主题加载失败，请稍后重试');
+                    return false;
+                }
+            };
+
+            const loadWishData = async (password = wishesPassword) => {
+                const wishesLoaded = await fetchWishes(password);
+                if (!wishesLoaded) return false;
+                return fetchWishCategories(password);
+            };
+
+            const resetWishForm = () => {
+                setWishFormOpen(false);
+                setEditingWish(null);
+                setWishFormTitle('');
+                setWishFormDescription('');
+                const uncategorized = wishCategories.find(category => category.name === '未分类');
+                setWishFormCategoryId(uncategorized ? String(uncategorized.id) : '');
+                setWishError('');
+            };
+
+            const openWishForm = (wish = null) => {
+                setEditingWish(wish);
+                setWishFormTitle(wish ? wish.title : '');
+                setWishFormDescription(wish ? (wish.description || '') : '');
+                const defaultCategory = wish?.category_id || wishCategories.find(category => category.name === '未分类')?.id || wishCategories[0]?.id || '';
+                setWishFormCategoryId(String(defaultCategory));
+                setWishFormOpen(true);
+                setWishError('');
+            };
+
+            const saveWish = async () => {
+                if (!wishFormTitle.trim()) {
+                    setWishError('请先写下心愿内容');
+                    return;
+                }
+                const categoryId = Number(wishFormCategoryId);
+                try {
+                    const endpoint = editingWish ? `${API_BASE_URL}/api/wishes/${editingWish.id}` : `${API_BASE_URL}/api/wishes`;
+                    const response = await fetch(endpoint, {
+                        method: editingWish ? 'PUT' : 'POST',
                         headers: {
                             'Content-Type': 'application/json',
                             'X-Wishes-Password': wishesPassword
                         },
-                        body: JSON.stringify({ title: newWish, category: '亲子' })
+                        body: JSON.stringify({
+                            title: wishFormTitle.trim(),
+                            description: wishFormDescription.trim(),
+                            categoryId: Number.isInteger(categoryId) && categoryId > 0 ? categoryId : null,
+                            completed: editingWish ? (editingWish.completed ? 1 : 0) : 0
+                        })
                     });
                     if (response.status === 401 || response.status === 429) {
                         const data = await response.json();
-                        handleWishUnauthorized(data.error);
+                        handleWishUnauthorized(data.error || '密码错误');
                         return;
                     }
-                    if (response.ok) {
-                        setNewWish('');
-                        fetchWishes();
-                    }
+                    const data = await response.json().catch(() => ({}));
+                    if (!response.ok) throw new Error(data.error || '保存心愿失败');
+                    resetWishForm();
+                    await loadWishData();
                 } catch (error) {
-                    console.error('添加心愿失败：', error);
+                    console.error('保存心愿失败：', error);
+                    setWishError(error.message || '保存心愿失败');
                 }
             };
 
-            // 切换完成状态
             const toggleWish = async (wish) => {
                 try {
-                    await fetch(`${API_BASE_URL}/api/wishes/${wish.id}`, {
+                    const response = await fetch(`${API_BASE_URL}/api/wishes/${wish.id}`, {
                         method: 'PUT',
                         headers: {
                             'Content-Type': 'application/json',
                             'X-Wishes-Password': wishesPassword
                         },
-                        body: JSON.stringify({ ...wish, completed: wish.completed ? 0 : 1 })
-                    }).then(async response => {
-                        if (response.status === 401 || response.status === 429) {
-                            const data = await response.json();
-                            handleWishUnauthorized(data.error);
-                            throw new Error('unauthorized');
-                        }
-                        if (!response.ok) throw new Error('更新心愿失败');
+                        body: JSON.stringify({
+                            title: wish.title,
+                            description: wish.description || '',
+                            categoryId: wish.category_id,
+                            priority: wish.priority || 0,
+                            completed: wish.completed ? 0 : 1
+                        })
                     });
-                    fetchWishes();
+                    if (response.status === 401 || response.status === 429) {
+                        const data = await response.json();
+                        handleWishUnauthorized(data.error || '密码错误');
+                        return;
+                    }
+                    if (!response.ok) throw new Error('更新心愿失败');
+                    await fetchWishes();
                 } catch (error) {
-                    if (error.message !== 'unauthorized') console.error('更新心愿失败：', error);
+                    console.error('更新心愿失败：', error);
                 }
             };
 
-            // 删除心愿
             const deleteWish = async (id) => {
+                if (!window.confirm('确定删除这个心愿吗？')) return;
                 try {
                     const response = await fetch(`${API_BASE_URL}/api/wishes/${id}`, {
                         method: 'DELETE',
@@ -393,32 +467,105 @@
                     });
                     if (response.status === 401 || response.status === 429) {
                         const data = await response.json();
-                        handleWishUnauthorized(data.error);
+                        handleWishUnauthorized(data.error || '密码错误');
                         return;
                     }
                     if (!response.ok) throw new Error('删除心愿失败');
-                    fetchWishes();
+                    await fetchWishes();
                 } catch (error) {
                     console.error('删除心愿失败：', error);
                 }
             };
 
-            // 验证心愿密码
+            const saveCategory = async () => {
+                if (!categoryDraftName.trim()) {
+                    setWishError('主题名称不能为空');
+                    return;
+                }
+                try {
+                    const endpoint = editingCategoryId
+                        ? `${API_BASE_URL}/api/wish-categories/${editingCategoryId}`
+                        : `${API_BASE_URL}/api/wish-categories`;
+                    const response = await fetch(endpoint, {
+                        method: editingCategoryId ? 'PUT' : 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-Wishes-Password': wishesPassword
+                        },
+                        body: JSON.stringify({ name: categoryDraftName.trim(), color: categoryDraftColor })
+                    });
+                    if (response.status === 401 || response.status === 429) {
+                        const data = await response.json();
+                        handleWishUnauthorized(data.error || '密码错误');
+                        return;
+                    }
+                    const data = await response.json().catch(() => ({}));
+                    if (!response.ok) throw new Error(data.error || '保存主题失败');
+                    setCategoryDraftName('');
+                    setCategoryDraftColor('#FFE66D');
+                    setEditingCategoryId(null);
+                    setWishError('');
+                    await fetchWishCategories();
+                } catch (error) {
+                    console.error('保存主题失败：', error);
+                    setWishError(error.message || '保存主题失败');
+                }
+            };
+
+            const editCategory = (category) => {
+                setEditingCategoryId(category.id);
+                setCategoryDraftName(category.name);
+                setCategoryDraftColor(category.color);
+                setWishError('');
+            };
+
+            const deleteCategory = async (category) => {
+                if (category.name === '未分类') return;
+                if (!window.confirm(`删除“${category.name}”后，里面的心愿会移入未分类。继续吗？`)) return;
+                try {
+                    const response = await fetch(`${API_BASE_URL}/api/wish-categories/${category.id}`, {
+                        method: 'DELETE',
+                        headers: { 'X-Wishes-Password': wishesPassword }
+                    });
+                    if (response.status === 401 || response.status === 429) {
+                        const data = await response.json();
+                        handleWishUnauthorized(data.error || '密码错误');
+                        return;
+                    }
+                    const data = await response.json().catch(() => ({}));
+                    if (!response.ok) throw new Error(data.error || '删除主题失败');
+                    if (wishCategoryFilter === String(category.id)) setWishCategoryFilter('all');
+                    await loadWishData();
+                } catch (error) {
+                    console.error('删除主题失败：', error);
+                    setWishError(error.message || '删除主题失败');
+                }
+            };
+
             const verifyWishesPassword = async () => {
                 if (!wishesPassword.trim()) {
                     setVerifyError('请输入密码');
                     return;
                 }
                 try {
-                    const verified = await fetchWishes(wishesPassword);
+                    const verified = await loadWishData(wishesPassword);
                     if (verified) {
                         setIsWishesVerified(true);
                         setVerifyError('');
+                        setWishError('');
                     }
                 } catch (error) {
                     setVerifyError('验证失败：' + error.message);
                 }
             };
+
+            const filteredWishes = wishes.filter(wish => {
+                const search = wishSearch.trim().toLowerCase();
+                const matchesSearch = !search || `${wish.title} ${wish.description || ''}`.toLowerCase().includes(search);
+                const matchesCategory = wishCategoryFilter === 'all' || String(wish.category_id) === String(wishCategoryFilter);
+                const matchesStatus = wishStatusFilter === 'all' || (wishStatusFilter === 'completed' ? !!wish.completed : !wish.completed);
+                return matchesSearch && matchesCategory && matchesStatus;
+            });
 
             return (
                 <div className="min-h-screen bg-[#FFFDE7] relative overflow-hidden">
@@ -646,80 +793,195 @@
                                     </div>
                                 ) : (
                                     <>
-                                    {/* 添加心愿输入框 */}
-                                <div className="bg-white rounded-3xl p-4 mb-4 border-3 border-memphis-dark shadow-[6px_6px_0_#374151]"
-                                    style={{ borderWidth: '3px' }}>
-                                    <div className="flex gap-2">
-                                        <input
-                                            type="text"
-                                            value={newWish}
-                                            onChange={(e) => setNewWish(e.target.value)}
-                                            onKeyPress={(e) => e.key === 'Enter' && addWish()}
-                                            placeholder="写下想和蕉蕉一起做的事..."
-                                            className="flex-1 px-4 py-2 rounded-xl border-2 border-gray-200 focus:border-memphis-pink focus:outline-none text-sm"
-                                        />
-                                        <button
-                                            onClick={addWish}
-                                            className="px-4 py-2 bg-memphis-pink text-white rounded-xl font-semibold hover:bg-pink-400 transition-colors"
-                                        >
-                                            添加
-                                        </button>
-                                    </div>
-                                </div>
-
-                                {/* 心愿列表 */}
-                                <div className="space-y-3">
-                                    {wishes.length === 0 ? (
-                                        <div className="bg-white rounded-3xl p-6 border-3 border-memphis-dark shadow-[6px_6px_0_#374151] text-center"
-                                            style={{ borderWidth: '3px' }}>
-                                            <div className="text-4xl mb-4">🎯</div>
-                                            <p className="text-gray-500 font-medium">还没有心愿</p>
-                                            <p className="text-sm text-gray-400 mt-2">在上方输入框添加第一个心愿吧！</p>
-                                        </div>
-                                    ) : (
-                                        wishes.map((wish) => (
-                                            <div key={wish.id}
-                                                className={`bg-white rounded-2xl p-4 border-2 border-memphis-dark shadow-[4px_4px_0_#374151] transition-all ${
-                                                    wish.completed ? 'opacity-60' : ''
-                                                }`}
+                                        <div className="flex items-start justify-between gap-3 mb-4">
+                                            <div>
+                                                <p className="text-gray-500 text-sm">把想和蕉蕉一起完成的事，慢慢收进来</p>
+                                                <p className="text-xs text-gray-400 mt-1">共 {wishes.length} 个心愿 · 当前显示 {filteredWishes.length} 个</p>
+                                            </div>
+                                            <button
+                                                onClick={() => openWishForm()}
+                                                className="flex-shrink-0 px-3 py-2 bg-memphis-pink text-white rounded-xl font-semibold shadow-[3px_3px_0_#374151] active:translate-y-0.5 active:shadow-none transition-all"
                                             >
-                                                <div className="flex items-start gap-3">
+                                                ＋ 添加
+                                            </button>
+                                        </div>
+
+                                        <div className="bg-white rounded-3xl p-4 mb-4 border-3 border-memphis-dark shadow-[6px_6px_0_#374151]" style={{ borderWidth: '3px' }}>
+                                            <input
+                                                type="search"
+                                                value={wishSearch}
+                                                onChange={(e) => setWishSearch(e.target.value)}
+                                                placeholder="搜索心愿..."
+                                                className="w-full px-4 py-2.5 rounded-xl border-2 border-gray-200 focus:border-memphis-pink focus:outline-none text-sm"
+                                            />
+                                            <div className="flex gap-2 overflow-x-auto py-3 -mx-1 px-1" style={{ scrollbarWidth: 'none' }}>
+                                                <button
+                                                    onClick={() => setWishCategoryFilter('all')}
+                                                    className={`flex-shrink-0 px-3 py-1.5 rounded-full text-sm font-semibold border-2 transition-colors ${wishCategoryFilter === 'all' ? 'bg-memphis-dark text-white border-memphis-dark' : 'bg-white text-gray-600 border-gray-200'}`}
+                                                >
+                                                    全部主题
+                                                </button>
+                                                {wishCategories.map(category => (
                                                     <button
-                                                        onClick={() => toggleWish(wish)}
-                                                        className={`w-6 h-6 rounded-full border-2 flex items-center justify-center flex-shrink-0 mt-0.5 transition-all ${
-                                                            wish.completed
-                                                                ? 'bg-memphis-teal border-memphis-teal text-white'
-                                                                : 'border-gray-300 hover:border-memphis-teal'
-                                                        }`}
+                                                        key={category.id}
+                                                        onClick={() => setWishCategoryFilter(String(category.id))}
+                                                        className={`flex-shrink-0 px-3 py-1.5 rounded-full text-sm font-semibold border-2 transition-colors ${wishCategoryFilter === String(category.id) ? 'text-memphis-dark border-memphis-dark' : 'bg-white text-gray-600 border-gray-200'}`}
+                                                        style={wishCategoryFilter === String(category.id) ? { backgroundColor: category.color } : {}}
                                                     >
-                                                        {wish.completed ? '✓' : ''}
+                                                        {category.name}
                                                     </button>
-                                                    <div className="flex-1 min-w-0">
-                                                        <p className={`font-medium ${wish.completed ? 'line-through text-gray-400' : 'text-memphis-dark'}`}>
-                                                            {wish.title}
-                                                        </p>
-                                                        {wish.description && (
-                                                            <p className="text-sm text-gray-400 mt-1">{wish.description}</p>
-                                                        )}
-                                                        <div className="flex items-center gap-2 mt-2">
-                                                            <span className="text-xs px-2 py-0.5 bg-memphis-yellow rounded-full text-memphis-dark">
-                                                                {wish.category}
-                                                            </span>
-                                                        </div>
+                                                ))}
+                                            </div>
+                                            <div className="flex items-center justify-between gap-2">
+                                                <div className="flex gap-2">
+                                                    {[['all', '全部'], ['active', '未完成'], ['completed', '已完成']].map(([value, label]) => (
+                                                        <button
+                                                            key={value}
+                                                            onClick={() => setWishStatusFilter(value)}
+                                                            className={`px-2.5 py-1 rounded-lg text-xs font-semibold ${wishStatusFilter === value ? 'bg-memphis-yellow text-memphis-dark' : 'text-gray-400 hover:bg-gray-100'}`}
+                                                        >
+                                                            {label}
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                                <button
+                                                    onClick={() => setWishManagerOpen(!wishManagerOpen)}
+                                                    className="text-xs text-gray-500 hover:text-memphis-dark font-semibold"
+                                                >
+                                                    ⚙ 管理主题
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        {wishFormOpen && (
+                                            <div className="bg-white rounded-3xl p-5 mb-4 border-3 border-memphis-dark shadow-[6px_6px_0_#374151]" style={{ borderWidth: '3px' }}>
+                                                <div className="flex items-center justify-between mb-4">
+                                                    <h3 className="font-bold text-memphis-dark">{editingWish ? '编辑心愿' : '写下新心愿'}</h3>
+                                                    <button onClick={resetWishForm} className="text-gray-400 text-xl" aria-label="关闭">×</button>
+                                                </div>
+                                                <div className="space-y-3">
+                                                    <input
+                                                        type="text"
+                                                        value={wishFormTitle}
+                                                        onChange={(e) => setWishFormTitle(e.target.value)}
+                                                        onKeyDown={(e) => e.key === 'Enter' && saveWish()}
+                                                        placeholder="例如：一起去看海"
+                                                        className="w-full px-4 py-3 rounded-xl border-2 border-gray-200 focus:border-memphis-pink focus:outline-none"
+                                                        autoFocus
+                                                    />
+                                                    <textarea
+                                                        value={wishFormDescription}
+                                                        onChange={(e) => setWishFormDescription(e.target.value)}
+                                                        placeholder="可以补充一点小计划（选填）"
+                                                        rows="2"
+                                                        className="w-full px-4 py-3 rounded-xl border-2 border-gray-200 focus:border-memphis-pink focus:outline-none text-sm resize-none"
+                                                    />
+                                                    <select
+                                                        value={wishFormCategoryId}
+                                                        onChange={(e) => setWishFormCategoryId(e.target.value)}
+                                                        className="w-full px-4 py-3 rounded-xl border-2 border-gray-200 focus:border-memphis-pink focus:outline-none bg-white text-sm"
+                                                    >
+                                                        {wishCategories.map(category => (
+                                                            <option key={category.id} value={category.id}>{category.name}</option>
+                                                        ))}
+                                                    </select>
+                                                    {wishError && <p className="text-sm text-red-500">{wishError}</p>}
+                                                    <div className="flex gap-2">
+                                                        <button onClick={saveWish} className="flex-1 py-2.5 bg-memphis-pink text-white rounded-xl font-semibold">保存</button>
+                                                        <button onClick={resetWishForm} className="px-4 py-2.5 bg-gray-100 text-gray-600 rounded-xl font-semibold">取消</button>
                                                     </div>
-                                                    <button
-                                                        onClick={() => deleteWish(wish.id)}
-                                                        className="text-gray-400 hover:text-red-500 transition-colors p-1"
-                                                    >
-                                                        🗑️
-                                                    </button>
                                                 </div>
                                             </div>
-                                        ))
-                                    )}
-                                </div>
-                            </>
-                            )}
+                                        )}
+
+                                        {wishManagerOpen && (
+                                            <div className="bg-[#FFF9D7] rounded-3xl p-5 mb-4 border-3 border-memphis-dark shadow-[5px_5px_0_#374151]" style={{ borderWidth: '3px' }}>
+                                                <div className="flex items-center justify-between mb-3">
+                                                    <div>
+                                                        <h3 className="font-bold text-memphis-dark">主题管理</h3>
+                                                        <p className="text-xs text-gray-500 mt-1">手动选择主题，不做自动判断</p>
+                                                    </div>
+                                                    <button onClick={() => setWishManagerOpen(false)} className="text-gray-400 text-xl" aria-label="关闭">×</button>
+                                                </div>
+                                                <div className="space-y-2">
+                                                    {wishCategories.map(category => (
+                                                        <div key={category.id} className="bg-white/80 rounded-xl p-2.5">
+                                                            {editingCategoryId === category.id ? (
+                                                                <div className="space-y-2">
+                                                                    <input value={categoryDraftName} onChange={(e) => setCategoryDraftName(e.target.value)} className="w-full px-3 py-2 rounded-lg border-2 border-gray-200 text-sm" />
+                                                                    <div className="flex flex-wrap gap-2">
+                                                                        {wishColors.map(color => (
+                                                                            <button key={color} onClick={() => setCategoryDraftColor(color)} className={`w-6 h-6 rounded-full border-2 ${categoryDraftColor === color ? 'border-memphis-dark scale-110' : 'border-white'}`} style={{ backgroundColor: color }} aria-label={`选择${color}`} />
+                                                                        ))}
+                                                                    </div>
+                                                                    <div className="flex gap-2">
+                                                                        <button onClick={saveCategory} className="text-xs px-3 py-1.5 bg-memphis-teal text-white rounded-lg font-semibold">保存</button>
+                                                                        <button onClick={() => { setEditingCategoryId(null); setCategoryDraftName(''); setCategoryDraftColor('#FFE66D'); }} className="text-xs px-3 py-1.5 bg-gray-100 text-gray-500 rounded-lg">取消</button>
+                                                                    </div>
+                                                                </div>
+                                                            ) : (
+                                                                <div className="flex items-center gap-2">
+                                                                    <span className="w-4 h-4 rounded-full flex-shrink-0" style={{ backgroundColor: category.color }} />
+                                                                    <span className="flex-1 text-sm font-medium text-memphis-dark">{category.name}</span>
+                                                                    <button onClick={() => editCategory(category)} className="text-xs text-gray-400 hover:text-memphis-dark">编辑</button>
+                                                                    {category.name !== '未分类' && <button onClick={() => deleteCategory(category)} className="text-xs text-gray-400 hover:text-red-500">删除</button>}
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                                <div className="mt-3 pt-3 border-t border-memphis-dark/10">
+                                                    <div className="flex gap-2">
+                                                        <input value={categoryDraftName} onChange={(e) => setCategoryDraftName(e.target.value)} placeholder="新增主题名称" className="flex-1 min-w-0 px-3 py-2 rounded-lg border-2 border-white focus:border-memphis-pink focus:outline-none text-sm" />
+                                                        <button onClick={saveCategory} className="px-3 py-2 bg-memphis-dark text-white rounded-lg text-sm font-semibold">新增</button>
+                                                    </div>
+                                                    <div className="flex flex-wrap gap-2 mt-2">
+                                                        {wishColors.map(color => (
+                                                            <button key={color} onClick={() => setCategoryDraftColor(color)} className={`w-6 h-6 rounded-full border-2 ${categoryDraftColor === color ? 'border-memphis-dark scale-110' : 'border-white'}`} style={{ backgroundColor: color }} aria-label={`选择${color}`} />
+                                                        ))}
+                                                    </div>
+                                                    {wishError && <p className="text-sm text-red-500 mt-2">{wishError}</p>}
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        <div className="grid gap-4 sm:grid-cols-2">
+                                            {filteredWishes.length === 0 ? (
+                                                <div className="sm:col-span-2 bg-white rounded-3xl p-8 border-3 border-memphis-dark shadow-[6px_6px_0_#374151] text-center" style={{ borderWidth: '3px' }}>
+                                                    <div className="text-4xl mb-4">🎯</div>
+                                                    <p className="text-gray-500 font-medium">没有匹配的心愿</p>
+                                                    <p className="text-sm text-gray-400 mt-2">换个主题或关键词试试吧</p>
+                                                </div>
+                                            ) : (
+                                                filteredWishes.map((wish, index) => (
+                                                    <div key={wish.id}
+                                                        className={`rounded-2xl p-4 border-2 shadow-[4px_4px_0_#374151] transition-all ${wish.completed ? 'opacity-60' : ''}`}
+                                                        style={{ backgroundColor: `${wish.category_color || '#E5E7EB'}33`, borderColor: wish.category_color || '#374151', transform: `rotate(${index % 2 === 0 ? '-0.6' : '0.6'}deg)` }}
+                                                    >
+                                                        <div className="flex items-start gap-3">
+                                                            <button
+                                                                onClick={() => toggleWish(wish)}
+                                                                className={`w-6 h-6 rounded-full border-2 flex items-center justify-center flex-shrink-0 mt-0.5 transition-all ${wish.completed ? 'bg-memphis-teal border-memphis-teal text-white' : 'bg-white/70 border-gray-300 hover:border-memphis-teal'}`}
+                                                                aria-label={wish.completed ? '标记为未完成' : '标记为完成'}
+                                                            >
+                                                                {wish.completed ? '✓' : ''}
+                                                            </button>
+                                                            <div className="flex-1 min-w-0">
+                                                                <p className={`font-medium break-words ${wish.completed ? 'line-through text-gray-400' : 'text-memphis-dark'}`}>{wish.title}</p>
+                                                                {wish.description && <p className="text-sm text-gray-500 mt-1 break-words">{wish.description}</p>}
+                                                                <span className="inline-block text-xs px-2 py-0.5 mt-3 rounded-full text-memphis-dark font-medium" style={{ backgroundColor: wish.category_color || '#E5E7EB' }}>{wish.category}</span>
+                                                            </div>
+                                                            <div className="flex items-center gap-1 flex-shrink-0">
+                                                                <button onClick={() => openWishForm(wish)} className="text-gray-400 hover:text-memphis-dark transition-colors p-1" aria-label="编辑心愿">✎</button>
+                                                                <button onClick={() => deleteWish(wish.id)} className="text-gray-400 hover:text-red-500 transition-colors p-1" aria-label="删除心愿">🗑️</button>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                ))
+                                            )}
+                                        </div>
+                                    </>
+                                )}
                         </div>
                         )}
 
