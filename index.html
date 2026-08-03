@@ -1232,6 +1232,7 @@
                                                         onPointerMove={(event) => updateWishDrag(event, wish)}
                                                         onPointerUp={(event) => finishWishDrag(event, wish)}
                                                         onPointerCancel={cancelWishDrag}
+                                                        onTouchMove={(event) => { if (dragStateRef.current?.active) event.preventDefault(); }}
                                                         onContextMenu={(event) => { if (dragStateRef.current) event.preventDefault(); }}
                                                         onDragStart={(event) => event.preventDefault()}
                                                         className={`relative rounded-2xl p-4 border-2 shadow-[4px_4px_0_#374151] transition-[transform,opacity,box-shadow,border-style] duration-200 ${wish.completed ? 'opacity-60' : ''} ${pendingWishId === wish.id ? 'scale-[0.99]' : ''} ${draggedWishId === wish.id ? 'z-20 opacity-25 shadow-none border-dashed' : ''}`}
