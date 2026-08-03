@@ -184,10 +184,14 @@
             const [verifyError, setVerifyError] = useState('');
             const [wishError, setWishError] = useState('');
             const [draggedWishId, setDraggedWishId] = useState(null);
+            const [pendingWishId, setPendingWishId] = useState(null);
             const [dragOrderIds, setDragOrderIds] = useState([]);
+            const [dragPoint, setDragPoint] = useState(null);
             const [isSavingWishOrder, setIsSavingWishOrder] = useState(false);
             const dragOrderRef = useRef([]);
             const dragStartOrderRef = useRef([]);
+            const dragStateRef = useRef(null);
+            const dragLongPressTimerRef = useRef(null);
 
             const wishColors = ['#FF6B6B', '#4ECDC4', '#9B59B6', '#FFE66D', '#A7F3D0', '#FDBA74', '#93C5FD', '#F9A8D4', '#C4B5FD', '#CBD5E1'];
 
@@ -487,38 +491,99 @@
                 }
             };
 
+            const clearWishDragTimer = () => {
+                if (dragLongPressTimerRef.current) {
+                    window.clearTimeout(dragLongPressTimerRef.current);
+                    dragLongPressTimerRef.current = null;
+                }
+            };
+
             const resetWishDrag = () => {
+                clearWishDragTimer();
                 document.body.style.overflow = '';
                 document.body.style.userSelect = '';
                 setDraggedWishId(null);
+                setPendingWishId(null);
+                setDragPoint(null);
                 setDragOrderIds([]);
                 dragOrderRef.current = [];
                 dragStartOrderRef.current = [];
+                dragStateRef.current = null;
+            };
+
+            const isWishDragTarget = (event) => {
+                const target = event.target;
+                return !target?.closest?.('button, input, select, textarea, a');
+            };
+
+            const beginActiveWishDrag = (wish, card, pointer) => {
+                const rect = card.getBoundingClientRect();
+                pointer.active = true;
+                pointer.offsetY = pointer.currentY - rect.top;
+                pointer.left = rect.left;
+                pointer.width = rect.width;
+                setPendingWishId(null);
+                setDraggedWishId(wish.id);
+                setDragPoint({ x: pointer.currentX, y: pointer.currentY, offsetY: pointer.offsetY, left: pointer.left, width: pointer.width });
+                document.body.style.overflow = 'hidden';
+                document.body.style.userSelect = 'none';
+                navigator.vibrate?.(22);
             };
 
             const startWishDrag = (event, wish) => {
-                if (!manualOrderEnabled || isSavingWishOrder) return;
-                event.preventDefault();
-                event.currentTarget.setPointerCapture?.(event.pointerId);
+                if (!manualOrderEnabled || isSavingWishOrder || !isWishDragTarget(event)) return;
+                if (event.pointerType === 'mouse' && event.button !== 0) return;
+                const card = event.currentTarget;
                 const orderedIds = visibleWishes.map(item => item.id);
+                const pointer = {
+                    pointerId: event.pointerId,
+                    wishId: wish.id,
+                    card,
+                    startX: event.clientX,
+                    startY: event.clientY,
+                    currentX: event.clientX,
+                    currentY: event.clientY,
+                    active: false,
+                    cancelled: false,
+                    offsetY: 0,
+                    left: 0,
+                    width: 0
+                };
+                dragStateRef.current = pointer;
                 dragOrderRef.current = orderedIds;
                 dragStartOrderRef.current = orderedIds;
                 setDragOrderIds(orderedIds);
-                setDraggedWishId(wish.id);
+                setPendingWishId(wish.id);
                 setWishError('');
-                document.body.style.overflow = 'hidden';
-                document.body.style.userSelect = 'none';
-                navigator.vibrate?.(18);
+                card.setPointerCapture?.(event.pointerId);
+                clearWishDragTimer();
+                dragLongPressTimerRef.current = window.setTimeout(() => {
+                    if (dragStateRef.current === pointer && !pointer.cancelled) beginActiveWishDrag(wish, card, pointer);
+                }, 260);
             };
 
             const updateWishDrag = (event, wish) => {
-                if (draggedWishId !== wish.id) return;
-                event.preventDefault();
-                const edge = 88;
-                if (event.clientY < edge) window.scrollBy(0, -12);
-                if (event.clientY > window.innerHeight - edge) window.scrollBy(0, 12);
+                const pointer = dragStateRef.current;
+                if (!pointer || pointer.pointerId !== event.pointerId || pointer.wishId !== wish.id) return;
+                pointer.currentX = event.clientX;
+                pointer.currentY = event.clientY;
+                const distance = Math.hypot(pointer.currentX - pointer.startX, pointer.currentY - pointer.startY);
+                if (!pointer.active) {
+                    if (distance > 10) {
+                        pointer.cancelled = true;
+                        clearWishDragTimer();
+                        setPendingWishId(null);
+                    }
+                    return;
+                }
 
-                const targetCard = document.elementFromPoint(event.clientX, event.clientY)?.closest('[data-wish-card-id]');
+                event.preventDefault();
+                setDragPoint(point => point ? ({ ...point, x: pointer.currentX, y: pointer.currentY }) : point);
+                const edge = 88;
+                if (pointer.currentY < edge) window.scrollBy(0, -12);
+                if (pointer.currentY > window.innerHeight - edge) window.scrollBy(0, 12);
+
+                const targetCard = document.elementFromPoint(pointer.currentX, pointer.currentY)?.closest('[data-wish-card-id]');
                 if (!targetCard) return;
                 const targetId = Number(targetCard.dataset.wishCardId);
                 if (!Number.isInteger(targetId) || targetId === wish.id) return;
@@ -529,7 +594,7 @@
                 const targetIndex = remainingIds.indexOf(targetId);
                 if (targetIndex < 0) return;
                 const targetRect = targetCard.getBoundingClientRect();
-                const insertAfter = event.clientY > targetRect.top + targetRect.height / 2;
+                const insertAfter = pointer.currentY > targetRect.top + targetRect.height / 2;
                 remainingIds.splice(targetIndex + (insertAfter ? 1 : 0), 0, wish.id);
                 if (remainingIds.join(',') === dragOrderRef.current.join(',')) return;
                 dragOrderRef.current = remainingIds;
@@ -537,22 +602,31 @@
             };
 
             const finishWishDrag = async (event, wish) => {
-                if (draggedWishId !== wish.id) return;
+                const pointer = dragStateRef.current;
+                if (!pointer || pointer.pointerId !== event.pointerId || pointer.wishId !== wish.id) return;
+                clearWishDragTimer();
+                try { pointer.card.releasePointerCapture?.(event.pointerId); } catch {}
+                if (!pointer.active) {
+                    resetWishDrag();
+                    return;
+                }
                 event.preventDefault();
-                document.body.style.overflow = '';
-                document.body.style.userSelect = '';
-
                 const sameGroup = item => item && !!item.completed === !!wish.completed && !!item.is_featured === !!wish.is_featured;
                 const originalGroup = dragStartOrderRef.current.filter(id => sameGroup(wishes.find(item => item.id === id)));
                 const finalGroup = dragOrderRef.current.filter(id => sameGroup(wishes.find(item => item.id === id)));
                 const originalIndex = originalGroup.indexOf(wish.id);
                 const finalIndex = finalGroup.indexOf(wish.id);
                 setDraggedWishId(null);
+                setPendingWishId(null);
+                setDragPoint(null);
+                document.body.style.overflow = '';
+                document.body.style.userSelect = '';
                 if (originalIndex === finalIndex || originalIndex < 0 || finalIndex < 0) {
                     resetWishDrag();
                     return;
                 }
 
+                dragStateRef.current = null;
                 setIsSavingWishOrder(true);
                 try {
                     const direction = finalIndex < originalIndex ? 'up' : 'down';
@@ -584,8 +658,10 @@
                 }
             };
 
-            const cancelWishDrag = () => {
-                if (draggedWishId === null) return;
+            const cancelWishDrag = (event) => {
+                const pointer = dragStateRef.current;
+                if (!pointer || (event && pointer.pointerId !== event.pointerId)) return;
+                try { pointer.card.releasePointerCapture?.(pointer.pointerId); } catch {}
                 resetWishDrag();
             };
 
@@ -1131,7 +1207,7 @@
 
                                         {manualOrderEnabled && visibleWishes.length > 1 && (
                                             <div className="flex items-center justify-end mb-2 pr-1 text-xs font-medium text-gray-400" aria-live="polite">
-                                                {isSavingWishOrder ? '正在保存新顺序…' : '按住右下角 ⋮⋮ 拖动排序'}
+                                                {isSavingWishOrder ? '正在保存新顺序…' : '长按卡片空白处拖动排序'}
                                             </div>
                                         )}
 
@@ -1152,11 +1228,18 @@
                                                     <div key={wish.id}
                                                         data-wish-card-id={wish.id}
                                                         aria-grabbed={draggedWishId === wish.id}
-                                                        className={`relative rounded-2xl p-4 border-2 shadow-[4px_4px_0_#374151] transition-[transform,opacity,box-shadow] duration-200 ${wish.completed ? 'opacity-60' : ''} ${draggedWishId === wish.id ? 'z-20 opacity-90 shadow-[8px_10px_0_#374151]' : ''}`}
+                                                        onPointerDown={(event) => startWishDrag(event, wish)}
+                                                        onPointerMove={(event) => updateWishDrag(event, wish)}
+                                                        onPointerUp={(event) => finishWishDrag(event, wish)}
+                                                        onPointerCancel={cancelWishDrag}
+                                                        onContextMenu={(event) => { if (dragStateRef.current) event.preventDefault(); }}
+                                                        onDragStart={(event) => event.preventDefault()}
+                                                        className={`relative rounded-2xl p-4 border-2 shadow-[4px_4px_0_#374151] transition-[transform,opacity,box-shadow,border-style] duration-200 ${wish.completed ? 'opacity-60' : ''} ${pendingWishId === wish.id ? 'scale-[0.99]' : ''} ${draggedWishId === wish.id ? 'z-20 opacity-25 shadow-none border-dashed' : ''}`}
                                                         style={{
                                                             backgroundColor: `${wish.category_color || '#E5E7EB'}33`,
                                                             borderColor: wish.category_color || '#374151',
-                                                            transform: draggedWishId === wish.id ? 'rotate(0deg) scale(1.025)' : `rotate(${index % 2 === 0 ? '-0.6' : '0.6'}deg)`
+                                                            transform: draggedWishId === wish.id ? 'rotate(0deg) scale(1.01)' : `rotate(${index % 2 === 0 ? '-0.6' : '0.6'}deg)`,
+                                                            touchAction: manualOrderEnabled ? 'pan-y' : 'auto'
                                                         }}
                                                     >
                                                         <div className="flex items-start gap-3">
@@ -1188,21 +1271,6 @@
                                                                 >
                                                                     {wish.is_featured ? '★' : '☆'}
                                                                 </button>
-                                                                {manualOrderEnabled && (
-                                                                    <button
-                                                                        type="button"
-                                                                        onPointerDown={(event) => startWishDrag(event, wish)}
-                                                                        onPointerMove={(event) => updateWishDrag(event, wish)}
-                                                                        onPointerUp={(event) => finishWishDrag(event, wish)}
-                                                                        onPointerCancel={cancelWishDrag}
-                                                                        onClick={(event) => event.preventDefault()}
-                                                                        disabled={isSavingWishOrder}
-                                                                        className={`px-2 py-1 rounded-lg font-bold tracking-[-0.16em] transition-[transform,color,background-color] select-none touch-none active:scale-[0.92] ${draggedWishId === wish.id ? 'text-memphis-dark bg-white/80 scale-110' : 'text-gray-400 hover:text-memphis-dark'}`}
-                                                                        style={{ touchAction: 'none' }}
-                                                                        aria-label="按住拖动心愿排序"
-                                                                        title="按住拖动排序"
-                                                                    >⋮⋮</button>
-                                                                )}
                                                                 <button onClick={() => openWishForm(wish)} className="text-gray-400 hover:text-memphis-dark transition-colors px-2 py-1 rounded-lg active:scale-[0.92]" aria-label="编辑心愿">✎</button>
                                                                 <button onClick={() => deleteWish(wish.id)} className="text-gray-400 hover:text-red-500 transition-colors px-2 py-1 rounded-lg active:scale-[0.92]" aria-label="删除心愿">🗑️</button>
                                                             </div>
@@ -1211,6 +1279,37 @@
                                                 ))
                                             )}
                                         </div>
+                                        {draggedWishId && dragPoint && wishes.find(wish => wish.id === draggedWishId) && (() => {
+                                            const draggedWish = wishes.find(wish => wish.id === draggedWishId);
+                                            return (
+                                                <div
+                                                    className="fixed z-[80] pointer-events-none rounded-2xl p-4 border-2 shadow-[10px_12px_0_#374151]"
+                                                    style={{
+                                                        top: `${dragPoint.y - dragPoint.offsetY}px`,
+                                                        left: `${dragPoint.left}px`,
+                                                        width: `${dragPoint.width}px`,
+                                                        backgroundColor: `${draggedWish.category_color || '#E5E7EB'}ee`,
+                                                        borderColor: draggedWish.category_color || '#374151',
+                                                        transform: 'rotate(-1deg) scale(1.025)',
+                                                        transition: 'transform 120ms ease-out'
+                                                    }}
+                                                >
+                                                    <div className="flex items-start gap-3">
+                                                        <div className={`w-7 h-7 rounded-full border-2 flex items-center justify-center flex-shrink-0 mt-0.5 ${draggedWish.completed ? 'bg-memphis-teal border-memphis-teal text-white' : 'bg-white/70 border-gray-300'}`}>
+                                                            {draggedWish.completed ? '✓' : ''}
+                                                        </div>
+                                                        <div className="flex-1 min-w-0">
+                                                            <p className={`font-medium leading-relaxed break-words ${draggedWish.completed ? 'line-through text-gray-400' : 'text-memphis-dark'}`}>{draggedWish.title}</p>
+                                                            {draggedWish.description && <p className="text-sm leading-relaxed text-gray-500 mt-1 break-words">{draggedWish.description}</p>}
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex items-center gap-1.5 mt-3 pl-10">
+                                                        <span className="inline-block text-xs px-2.5 py-1 rounded-full text-memphis-dark font-medium" style={{ backgroundColor: draggedWish.category_color || '#E5E7EB' }}>{draggedWish.category}</span>
+                                                        {!!draggedWish.is_featured && <span className="inline-block text-xs px-2 py-1 rounded-full bg-pink-100 text-memphis-pink font-semibold">★ 重点</span>}
+                                                    </div>
+                                                </div>
+                                            );
+                                        })()}
                                     </>
                                 )}
                         </div>
