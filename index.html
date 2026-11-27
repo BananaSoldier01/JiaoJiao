@@ -176,6 +176,14 @@
             }, 0);
         }
 
+        function normalizeAllergenCategories(categories) {
+            const normalized = {};
+            ALLERGEN_CATEGORY_KEYS.forEach((key) => {
+                normalized[key] = Array.isArray(categories[key]) ? categories[key] : [];
+            });
+            return normalized;
+        }
+
         function menuItemsOf(categories, key) {
             if (!categories || !Array.isArray(categories[key])) return [];
             return categories[key].filter(food => food != null && food !== '');
@@ -268,9 +276,9 @@
                     if (!categories || typeof categories !== 'object' || Array.isArray(categories)) {
                         return null;
                     }
-                    // 直接使用后端返回的数据（已包含emoji）；total 单独保留给标题计数
+                    // 缺失或不是数组的分类按空数组处理，避免卡片读取 length 时报错
                     return {
-                        categories,
+                        categories: normalizeAllergenCategories(categories),
                         total: numericTotal(data && data.total)
                     };
                 } catch (error) {
