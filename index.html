@@ -155,6 +155,64 @@
             </svg>
         );
 
+        const MENU_SECTIONS = [
+            { key: 'dishes', title: '菜肴', bg: 'bg-[#F97316]', titleClass: 'text-white', rotate: '-2deg', fallbackEmoji: '🍲' },
+            { key: 'staples', title: '主食面点', bg: 'bg-[#22C55E]', titleClass: 'text-white', rotate: '2deg', fallbackEmoji: '🍚' },
+            { key: 'porridge', title: '粥糊汤', bg: 'bg-[#4ECDC4]', titleClass: 'text-memphis-dark', rotate: '-2deg', fallbackEmoji: '🥣' },
+            { key: 'snacks', title: '零食加餐', bg: 'bg-memphis-yellow', titleClass: 'text-memphis-dark', rotate: '2deg', fallbackEmoji: '🍪' },
+        ];
+
+        const ALLERGEN_CATEGORY_KEYS = ['grains', 'vegetables', 'protein', 'oils', 'mushrooms', 'bean_products', 'fruits', 'other'];
+
+        function numericTotal(value) {
+            return typeof value === 'number' && isFinite(value) ? value : null;
+        }
+
+        function sumCategoryLengths(categories, keys) {
+            if (!categories) return 0;
+            return keys.reduce((sum, key) => {
+                const items = categories[key];
+                return sum + (Array.isArray(items) ? items.length : 0);
+            }, 0);
+        }
+
+        function normalizeAllergenCategories(categories) {
+            const normalized = {};
+            ALLERGEN_CATEGORY_KEYS.forEach((key) => {
+                normalized[key] = Array.isArray(categories[key]) ? categories[key] : [];
+            });
+            return normalized;
+        }
+
+        function menuItemsOf(categories, key) {
+            if (!categories || !Array.isArray(categories[key])) return [];
+            return categories[key].filter(food => food != null && food !== '');
+        }
+
+        function menuCategoryCount(categories) {
+            return MENU_SECTIONS.reduce((sum, section) => sum + menuItemsOf(categories, section.key).length, 0);
+        }
+
+        const FoodStatusCard = ({ label }) => (
+            <div className="bg-white rounded-3xl p-6 border-3 border-memphis-dark shadow-[6px_6px_0_#374151] text-center" style={{ borderWidth: '3px' }}>
+                <div className="text-4xl mb-4">{label === '加载中' ? '⏳' : '🍽️'}</div>
+                <p className="text-gray-500 font-medium">{label}</p>
+            </div>
+        );
+
+        function menuItemView(food, fallbackEmoji) {
+            if (typeof food === 'string') {
+                return { emoji: fallbackEmoji, name: food };
+            }
+            if (food && typeof food === 'object') {
+                return {
+                    emoji: food.emoji || fallbackEmoji,
+                    name: food.name || ''
+                };
+            }
+            return { emoji: fallbackEmoji, name: '' };
+        }
+
         // 主页面
         const BabyPage = () => {
             const [days, setDays] = useState(0);
@@ -162,6 +220,12 @@
             const [todayData, setTodayData] = useState(null);
             const [loading, setLoading] = useState(true);
             const [allergenFoods, setAllergenFoods] = useState(null);
+            const [allergenTotal, setAllergenTotal] = useState(null);
+            const [allergenStatus, setAllergenStatus] = useState('idle');
+            const [allergenView, setAllergenView] = useState('ingredients');
+            const [menuFoods, setMenuFoods] = useState(null);
+            const [menuTotal, setMenuTotal] = useState(null);
+            const [menuStatus, setMenuStatus] = useState('idle');
             const [showNameStory, setShowNameStory] = useState(false);
             const [activeTab, setActiveTab] = useState('home');
             const [wishes, setWishes] = useState([]);
@@ -188,6 +252,10 @@
             const [dragOrderIds, setDragOrderIds] = useState([]);
             const [dragPoint, setDragPoint] = useState(null);
             const [isSavingWishOrder, setIsSavingWishOrder] = useState(false);
+            const allergenStatusRef = useRef('idle');
+            const menuStatusRef = useRef('idle');
+            const allergenRequestRef = useRef(0);
+            const menuRequestRef = useRef(0);
             const dragOrderRef = useRef([]);
             const dragStartOrderRef = useRef([]);
             const dragStateRef = useRef(null);
@@ -202,12 +270,37 @@
             const fetchAllergenFoods = async () => {
                 try {
                     const response = await fetch(`${API_BASE_URL}/api/allergen-foods`);
+                    if (!response.ok) throw new Error('排敏食物加载失败');
                     const data = await response.json();
-
-                    // 直接使用后端返回的数据（已包含emoji）
-                    return data.categories;
+                    const categories = data && data.categories;
+                    if (!categories || typeof categories !== 'object' || Array.isArray(categories)) {
+                        return null;
+                    }
+                    // 缺失或不是数组的分类按空数组处理，避免卡片读取 length 时报错
+                    return {
+                        categories: normalizeAllergenCategories(categories),
+                        total: numericTotal(data && data.total)
+                    };
                 } catch (error) {
                     console.error('获取排敏食物失败：', error);
+                    return null;
+                }
+            };
+
+            // 从同一个 NAS API 获取菜单
+            const fetchMenuFoods = async () => {
+                try {
+                    const response = await fetch(`${API_BASE_URL}/api/menu-foods`);
+                    if (!response.ok) throw new Error('菜单加载失败');
+                    const data = await response.json();
+                    const categories = data && data.categories;
+                    const total = numericTotal(data && data.total);
+                    if (!categories || typeof categories !== 'object' || Array.isArray(categories)) {
+                        return { categories: {}, total };
+                    }
+                    return { categories, total };
+                } catch (error) {
+                    console.error('获取菜单失败：', error);
                     return null;
                 }
             };
@@ -265,25 +358,70 @@
                 const today = new Date();
                 const diff = Math.ceil((today - birth) / (1000 * 60 * 60 * 24)) + 1;
                 setDays(diff);
-
-                // 加载数据
-                async function init() {
-                    console.log('🔄 开始加载数据...');
-
-                    // 从NAS API获取排敏食物
-                    const foods = await fetchAllergenFoods();
-                    if (foods) {
-                        setAllergenFoods(foods);
-                        console.log('🥦 排敏食物：', foods);
-                    } else {
-                        console.error('❌ 获取排敏食物失败');
-                    }
-
-                    setLoading(false);
-                }
-                init();
-
+                setLoading(false);
             }, []);
+
+            // 进入排敏页才拉食材，不等待菜单
+            useEffect(() => {
+                if (activeTab !== 'allergen') return;
+                if (allergenStatusRef.current === 'loading' || allergenStatusRef.current === 'ready' || allergenStatusRef.current === 'empty') return;
+                const requestId = ++allergenRequestRef.current;
+                allergenStatusRef.current = 'loading';
+                setAllergenStatus('loading');
+                fetchAllergenFoods().then((foods) => {
+                    if (allergenRequestRef.current !== requestId) return;
+                    if (!foods || !foods.categories) {
+                        allergenStatusRef.current = 'error';
+                        setAllergenStatus('error');
+                        setAllergenFoods(null);
+                        setAllergenTotal(null);
+                        console.error('❌ 获取排敏食物失败');
+                        return;
+                    }
+                    setAllergenFoods(foods.categories);
+                    setAllergenTotal(foods.total);
+                    const count = sumCategoryLengths(foods.categories, ALLERGEN_CATEGORY_KEYS);
+                    if (count === 0) {
+                        allergenStatusRef.current = 'empty';
+                        setAllergenStatus('empty');
+                    } else {
+                        allergenStatusRef.current = 'ready';
+                        setAllergenStatus('ready');
+                    }
+                    console.log('🥦 排敏食物：', foods.categories, foods.total);
+                });
+            }, [activeTab]);
+
+            // 第一次切到菜单才拉菜单；成功或为空后不再重复请求，失败后可以再试
+            useEffect(() => {
+                if (activeTab !== 'allergen' || allergenView !== 'menu') return;
+                if (menuStatusRef.current === 'loading' || menuStatusRef.current === 'ready' || menuStatusRef.current === 'empty') return;
+                const requestId = ++menuRequestRef.current;
+                menuStatusRef.current = 'loading';
+                setMenuStatus('loading');
+                fetchMenuFoods().then((menus) => {
+                    if (menuRequestRef.current !== requestId) return;
+                    if (!menus) {
+                        menuStatusRef.current = 'error';
+                        setMenuStatus('error');
+                        setMenuFoods(null);
+                        setMenuTotal(null);
+                        console.error('❌ 获取菜单失败');
+                        return;
+                    }
+                    const categories = menus.categories || {};
+                    setMenuFoods(categories);
+                    setMenuTotal(menus.total);
+                    if (menuCategoryCount(categories) === 0) {
+                        menuStatusRef.current = 'empty';
+                        setMenuStatus('empty');
+                    } else {
+                        menuStatusRef.current = 'ready';
+                        setMenuStatus('ready');
+                    }
+                    console.log('🍽️ 菜单：', categories, menus.total);
+                });
+            }, [activeTab, allergenView]);
 
             // 计算月龄
             const calculateAge = () => {
@@ -909,13 +1047,36 @@
                         {/* 排敏Tab */}
                         {activeTab === 'allergen' && (
                             <div style={{ animation: 'fadeInUp 0.3s ease-out' }}>
+                                <div className="flex bg-white rounded-2xl border-2 border-memphis-dark shadow-[3px_3px_0_#374151] p-1 mb-5">
+                                    {[
+                                        { id: 'ingredients', label: '食材' },
+                                        { id: 'menu', label: '菜单' },
+                                    ].map(view => (
+                                        <button
+                                            key={view.id}
+                                            type="button"
+                                            onClick={() => setAllergenView(view.id)}
+                                            className={`flex-1 py-2 rounded-xl text-sm font-bold ${
+                                                allergenView === view.id
+                                                    ? 'bg-memphis-yellow text-memphis-dark'
+                                                    : 'text-gray-500'
+                                            }`}
+                                        >
+                                            {view.label}
+                                        </button>
+                                    ))}
+                                </div>
+                                {allergenView === 'ingredients' && (
+                                <div>
                                 <div className="flex items-center justify-between mb-6">
                                     <h2 className="text-xl font-bold text-memphis-dark">已排敏食物</h2>
-                                    <span className="text-sm text-memphis-dark font-bold tracking-wide">
-                                        共{allergenFoods ? (allergenFoods.grains.length + allergenFoods.vegetables.length + allergenFoods.protein.length + allergenFoods.oils.length + allergenFoods.mushrooms.length + allergenFoods.bean_products.length + allergenFoods.fruits.length) : 0}种
-                                    </span>
+                                    {allergenStatus === 'ready' && (
+                                        <span className="text-sm text-memphis-dark font-bold tracking-wide">
+                                            共{allergenTotal != null ? allergenTotal : sumCategoryLengths(allergenFoods, ALLERGEN_CATEGORY_KEYS)}种
+                                        </span>
+                                    )}
                                 </div>
-                                {allergenFoods && (
+                                {allergenStatus === 'ready' && allergenFoods ? (
                                     <div className="space-y-3">
                                         {allergenFoods.grains.length > 0 && (
                                             <div className="food-card bg-[#F97316] rounded-2xl p-4 border-2 border-memphis-dark shadow-[4px_4px_0_#374151]" style={{ '--rotate': '-2deg' }}>
@@ -996,6 +1157,45 @@
                                                     ))}
                                                 </div>
                                             </div>
+                                        )}
+                                    </div>
+                                ) : (
+                                    <FoodStatusCard label={allergenStatus === 'empty' ? '暂无数据' : allergenStatus === 'error' ? '加载失败' : '加载中'} />
+                                )}
+                                </div>
+                                )}
+                                {allergenView === 'menu' && (
+                                    <div>
+                                        <div className="flex items-center justify-between mb-6">
+                                            <h2 className="text-xl font-bold text-memphis-dark">菜单</h2>
+                                            {menuStatus === 'ready' && (
+                                                <span className="text-sm text-memphis-dark font-bold tracking-wide">
+                                                    共{menuTotal != null ? menuTotal : menuCategoryCount(menuFoods)}种
+                                                </span>
+                                            )}
+                                        </div>
+                                        {menuStatus === 'ready' && menuFoods ? (
+                                            <div className="space-y-3">
+                                                {MENU_SECTIONS.map(section => {
+                                                    const items = menuItemsOf(menuFoods, section.key);
+                                                    if (items.length === 0) return null;
+                                                    return (
+                                                        <div key={section.key} className={`food-card ${section.bg} rounded-2xl p-4 border-2 border-memphis-dark shadow-[4px_4px_0_#374151]`} style={{ '--rotate': section.rotate }}>
+                                                            <div className={`font-bold ${section.titleClass} text-lg mb-3`}>{section.title} ({items.length})</div>
+                                                            <div className="flex flex-wrap gap-2">
+                                                                {items.map((food, i) => {
+                                                                    const item = menuItemView(food, section.fallbackEmoji);
+                                                                    return (
+                                                                        <span key={i} className="bg-white/90 px-3 py-1.5 rounded-full text-sm font-medium text-memphis-dark">{item.emoji} {item.name}</span>
+                                                                    );
+                                                                })}
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        ) : (
+                                            <FoodStatusCard label={menuStatus === 'empty' ? '暂无数据' : menuStatus === 'error' ? '加载失败' : '加载中'} />
                                         )}
                                     </div>
                                 )}
