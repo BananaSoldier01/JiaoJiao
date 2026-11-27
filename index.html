@@ -185,6 +185,13 @@
             return MENU_SECTIONS.reduce((sum, section) => sum + menuItemsOf(categories, section.key).length, 0);
         }
 
+        const FoodStatusCard = ({ label }) => (
+            <div className="bg-white rounded-3xl p-6 border-3 border-memphis-dark shadow-[6px_6px_0_#374151] text-center" style={{ borderWidth: '3px' }}>
+                <div className="text-4xl mb-4">{label === '加载中' ? '⏳' : '🍽️'}</div>
+                <p className="text-gray-500 font-medium">{label}</p>
+            </div>
+        );
+
         function menuItemView(food, fallbackEmoji) {
             if (typeof food === 'string') {
                 return { emoji: fallbackEmoji, name: food };
@@ -206,9 +213,11 @@
             const [loading, setLoading] = useState(true);
             const [allergenFoods, setAllergenFoods] = useState(null);
             const [allergenTotal, setAllergenTotal] = useState(null);
+            const [allergenStatus, setAllergenStatus] = useState('idle');
             const [allergenView, setAllergenView] = useState('ingredients');
             const [menuFoods, setMenuFoods] = useState(null);
             const [menuTotal, setMenuTotal] = useState(null);
+            const [menuStatus, setMenuStatus] = useState('idle');
             const [showNameStory, setShowNameStory] = useState(false);
             const [activeTab, setActiveTab] = useState('home');
             const [wishes, setWishes] = useState([]);
@@ -235,6 +244,10 @@
             const [dragOrderIds, setDragOrderIds] = useState([]);
             const [dragPoint, setDragPoint] = useState(null);
             const [isSavingWishOrder, setIsSavingWishOrder] = useState(false);
+            const allergenStatusRef = useRef('idle');
+            const menuStatusRef = useRef('idle');
+            const allergenRequestRef = useRef(0);
+            const menuRequestRef = useRef(0);
             const dragOrderRef = useRef([]);
             const dragStartOrderRef = useRef([]);
             const dragStateRef = useRef(null);
@@ -249,11 +262,15 @@
             const fetchAllergenFoods = async () => {
                 try {
                     const response = await fetch(`${API_BASE_URL}/api/allergen-foods`);
+                    if (!response.ok) throw new Error('排敏食物加载失败');
                     const data = await response.json();
-
+                    const categories = data && data.categories;
+                    if (!categories || typeof categories !== 'object' || Array.isArray(categories)) {
+                        return null;
+                    }
                     // 直接使用后端返回的数据（已包含emoji）；total 单独保留给标题计数
                     return {
-                        categories: data && data.categories,
+                        categories,
                         total: numericTotal(data && data.total)
                     };
                 } catch (error) {
@@ -333,36 +350,70 @@
                 const today = new Date();
                 const diff = Math.ceil((today - birth) / (1000 * 60 * 60 * 24)) + 1;
                 setDays(diff);
-
-                // 加载数据
-                async function init() {
-                    console.log('🔄 开始加载数据...');
-
-                    // 从NAS API获取排敏食物和菜单
-                    const [foods, menus] = await Promise.all([
-                        fetchAllergenFoods(),
-                        fetchMenuFoods()
-                    ]);
-                    if (foods && foods.categories) {
-                        setAllergenFoods(foods.categories);
-                        setAllergenTotal(foods.total);
-                        console.log('🥦 排敏食物：', foods.categories, foods.total);
-                    } else {
-                        console.error('❌ 获取排敏食物失败');
-                    }
-                    if (menus) {
-                        setMenuFoods(menus.categories);
-                        setMenuTotal(menus.total);
-                        console.log('🍽️ 菜单：', menus.categories, menus.total);
-                    } else {
-                        console.error('❌ 获取菜单失败');
-                    }
-
-                    setLoading(false);
-                }
-                init();
-
+                setLoading(false);
             }, []);
+
+            // 进入排敏页才拉食材，不等待菜单
+            useEffect(() => {
+                if (activeTab !== 'allergen') return;
+                if (allergenStatusRef.current === 'loading' || allergenStatusRef.current === 'ready' || allergenStatusRef.current === 'empty') return;
+                const requestId = ++allergenRequestRef.current;
+                allergenStatusRef.current = 'loading';
+                setAllergenStatus('loading');
+                fetchAllergenFoods().then((foods) => {
+                    if (allergenRequestRef.current !== requestId) return;
+                    if (!foods || !foods.categories) {
+                        allergenStatusRef.current = 'error';
+                        setAllergenStatus('error');
+                        setAllergenFoods(null);
+                        setAllergenTotal(null);
+                        console.error('❌ 获取排敏食物失败');
+                        return;
+                    }
+                    setAllergenFoods(foods.categories);
+                    setAllergenTotal(foods.total);
+                    const count = sumCategoryLengths(foods.categories, ALLERGEN_CATEGORY_KEYS);
+                    if (count === 0) {
+                        allergenStatusRef.current = 'empty';
+                        setAllergenStatus('empty');
+                    } else {
+                        allergenStatusRef.current = 'ready';
+                        setAllergenStatus('ready');
+                    }
+                    console.log('🥦 排敏食物：', foods.categories, foods.total);
+                });
+            }, [activeTab]);
+
+            // 第一次切到菜单才拉菜单；成功或为空后不再重复请求，失败后可以再试
+            useEffect(() => {
+                if (activeTab !== 'allergen' || allergenView !== 'menu') return;
+                if (menuStatusRef.current === 'loading' || menuStatusRef.current === 'ready' || menuStatusRef.current === 'empty') return;
+                const requestId = ++menuRequestRef.current;
+                menuStatusRef.current = 'loading';
+                setMenuStatus('loading');
+                fetchMenuFoods().then((menus) => {
+                    if (menuRequestRef.current !== requestId) return;
+                    if (!menus) {
+                        menuStatusRef.current = 'error';
+                        setMenuStatus('error');
+                        setMenuFoods(null);
+                        setMenuTotal(null);
+                        console.error('❌ 获取菜单失败');
+                        return;
+                    }
+                    const categories = menus.categories || {};
+                    setMenuFoods(categories);
+                    setMenuTotal(menus.total);
+                    if (menuCategoryCount(categories) === 0) {
+                        menuStatusRef.current = 'empty';
+                        setMenuStatus('empty');
+                    } else {
+                        menuStatusRef.current = 'ready';
+                        setMenuStatus('ready');
+                    }
+                    console.log('🍽️ 菜单：', categories, menus.total);
+                });
+            }, [activeTab, allergenView]);
 
             // 计算月龄
             const calculateAge = () => {
@@ -1011,11 +1062,13 @@
                                 <div>
                                 <div className="flex items-center justify-between mb-6">
                                     <h2 className="text-xl font-bold text-memphis-dark">已排敏食物</h2>
-                                    <span className="text-sm text-memphis-dark font-bold tracking-wide">
-                                        共{allergenFoods ? (allergenTotal != null ? allergenTotal : sumCategoryLengths(allergenFoods, ALLERGEN_CATEGORY_KEYS)) : 0}种
-                                    </span>
+                                    {allergenStatus === 'ready' && (
+                                        <span className="text-sm text-memphis-dark font-bold tracking-wide">
+                                            共{allergenTotal != null ? allergenTotal : sumCategoryLengths(allergenFoods, ALLERGEN_CATEGORY_KEYS)}种
+                                        </span>
+                                    )}
                                 </div>
-                                {allergenFoods && (
+                                {allergenStatus === 'ready' && allergenFoods ? (
                                     <div className="space-y-3">
                                         {allergenFoods.grains.length > 0 && (
                                             <div className="food-card bg-[#F97316] rounded-2xl p-4 border-2 border-memphis-dark shadow-[4px_4px_0_#374151]" style={{ '--rotate': '-2deg' }}>
@@ -1098,6 +1151,8 @@
                                             </div>
                                         )}
                                     </div>
+                                ) : (
+                                    <FoodStatusCard label={allergenStatus === 'empty' ? '暂无数据' : allergenStatus === 'error' ? '加载失败' : '加载中'} />
                                 )}
                                 </div>
                                 )}
@@ -1105,13 +1160,13 @@
                                     <div>
                                         <div className="flex items-center justify-between mb-6">
                                             <h2 className="text-xl font-bold text-memphis-dark">菜单</h2>
-                                            {menuFoods && (
+                                            {menuStatus === 'ready' && (
                                                 <span className="text-sm text-memphis-dark font-bold tracking-wide">
                                                     共{menuTotal != null ? menuTotal : menuCategoryCount(menuFoods)}种
                                                 </span>
                                             )}
                                         </div>
-                                        {menuFoods && MENU_SECTIONS.some(section => menuItemsOf(menuFoods, section.key).length > 0) ? (
+                                        {menuStatus === 'ready' && menuFoods ? (
                                             <div className="space-y-3">
                                                 {MENU_SECTIONS.map(section => {
                                                     const items = menuItemsOf(menuFoods, section.key);
@@ -1132,11 +1187,7 @@
                                                 })}
                                             </div>
                                         ) : (
-                                            <div className="bg-white rounded-3xl p-6 border-3 border-memphis-dark shadow-[6px_6px_0_#374151] text-center" style={{ borderWidth: '3px' }}>
-                                                <div className="text-4xl mb-4">🍽️</div>
-                                                <p className="text-gray-500 font-medium">{menuFoods ? '菜单还是空的' : '菜单暂时没有加载出来'}</p>
-                                                <p className="text-sm text-gray-400 mt-2">{menuFoods ? '有新的菜式会显示在这里' : '稍后再来看看吧'}</p>
-                                            </div>
+                                            <FoodStatusCard label={menuStatus === 'empty' ? '暂无数据' : menuStatus === 'error' ? '加载失败' : '加载中'} />
                                         )}
                                     </div>
                                 )}
