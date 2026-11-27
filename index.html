@@ -155,6 +155,31 @@
             </svg>
         );
 
+        const MENU_SECTIONS = [
+            { key: 'dishes', title: '菜肴', bg: 'bg-[#F97316]', titleClass: 'text-white', rotate: '-2deg', fallbackEmoji: '🍲' },
+            { key: 'staples', title: '主食面点', bg: 'bg-[#22C55E]', titleClass: 'text-white', rotate: '2deg', fallbackEmoji: '🍚' },
+            { key: 'porridge', title: '粥糊汤', bg: 'bg-[#4ECDC4]', titleClass: 'text-memphis-dark', rotate: '-2deg', fallbackEmoji: '🥣' },
+            { key: 'snacks', title: '零食加餐', bg: 'bg-memphis-yellow', titleClass: 'text-memphis-dark', rotate: '2deg', fallbackEmoji: '🍪' },
+        ];
+
+        function menuItemsOf(categories, key) {
+            if (!categories || !Array.isArray(categories[key])) return [];
+            return categories[key].filter(food => food != null && food !== '');
+        }
+
+        function menuItemView(food, fallbackEmoji) {
+            if (typeof food === 'string') {
+                return { emoji: fallbackEmoji, name: food };
+            }
+            if (food && typeof food === 'object') {
+                return {
+                    emoji: food.emoji || fallbackEmoji,
+                    name: food.name || ''
+                };
+            }
+            return { emoji: fallbackEmoji, name: '' };
+        }
+
         // 主页面
         const BabyPage = () => {
             const [days, setDays] = useState(0);
@@ -162,6 +187,8 @@
             const [todayData, setTodayData] = useState(null);
             const [loading, setLoading] = useState(true);
             const [allergenFoods, setAllergenFoods] = useState(null);
+            const [allergenView, setAllergenView] = useState('ingredients');
+            const [menuFoods, setMenuFoods] = useState(null);
             const [showNameStory, setShowNameStory] = useState(false);
             const [activeTab, setActiveTab] = useState('home');
             const [wishes, setWishes] = useState([]);
@@ -208,6 +235,23 @@
                     return data.categories;
                 } catch (error) {
                     console.error('获取排敏食物失败：', error);
+                    return null;
+                }
+            };
+
+            // 从同一个 NAS API 获取菜单
+            const fetchMenuFoods = async () => {
+                try {
+                    const response = await fetch(`${API_BASE_URL}/api/menu-foods`);
+                    if (!response.ok) throw new Error('菜单加载失败');
+                    const data = await response.json();
+                    const categories = data && data.categories;
+                    if (!categories || typeof categories !== 'object' || Array.isArray(categories)) {
+                        return {};
+                    }
+                    return categories;
+                } catch (error) {
+                    console.error('获取菜单失败：', error);
                     return null;
                 }
             };
@@ -270,13 +314,22 @@
                 async function init() {
                     console.log('🔄 开始加载数据...');
 
-                    // 从NAS API获取排敏食物
-                    const foods = await fetchAllergenFoods();
+                    // 从NAS API获取排敏食物和菜单
+                    const [foods, menus] = await Promise.all([
+                        fetchAllergenFoods(),
+                        fetchMenuFoods()
+                    ]);
                     if (foods) {
                         setAllergenFoods(foods);
                         console.log('🥦 排敏食物：', foods);
                     } else {
                         console.error('❌ 获取排敏食物失败');
+                    }
+                    if (menus) {
+                        setMenuFoods(menus);
+                        console.log('🍽️ 菜单：', menus);
+                    } else {
+                        console.error('❌ 获取菜单失败');
                     }
 
                     setLoading(false);
@@ -909,6 +962,27 @@
                         {/* 排敏Tab */}
                         {activeTab === 'allergen' && (
                             <div style={{ animation: 'fadeInUp 0.3s ease-out' }}>
+                                <div className="flex bg-white rounded-2xl border-2 border-memphis-dark shadow-[3px_3px_0_#374151] p-1 mb-5">
+                                    {[
+                                        { id: 'ingredients', label: '食材' },
+                                        { id: 'menu', label: '菜单' },
+                                    ].map(view => (
+                                        <button
+                                            key={view.id}
+                                            type="button"
+                                            onClick={() => setAllergenView(view.id)}
+                                            className={`flex-1 py-2 rounded-xl text-sm font-bold ${
+                                                allergenView === view.id
+                                                    ? 'bg-memphis-yellow text-memphis-dark'
+                                                    : 'text-gray-500'
+                                            }`}
+                                        >
+                                            {view.label}
+                                        </button>
+                                    ))}
+                                </div>
+                                {allergenView === 'ingredients' && (
+                                <div>
                                 <div className="flex items-center justify-between mb-6">
                                     <h2 className="text-xl font-bold text-memphis-dark">已排敏食物</h2>
                                     <span className="text-sm text-memphis-dark font-bold tracking-wide">
@@ -995,6 +1069,47 @@
                                                         <span key={i} className="bg-white/90 px-3 py-1.5 rounded-full text-sm font-medium text-memphis-dark">{food.emoji} {food.name}</span>
                                                     ))}
                                                 </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+                                </div>
+                                )}
+                                {allergenView === 'menu' && (
+                                    <div>
+                                        <div className="flex items-center justify-between mb-6">
+                                            <h2 className="text-xl font-bold text-memphis-dark">菜单</h2>
+                                            {menuFoods && (
+                                                <span className="text-sm text-memphis-dark font-bold tracking-wide">
+                                                    共{MENU_SECTIONS.reduce((sum, section) => sum + menuItemsOf(menuFoods, section.key).length, 0)}种
+                                                </span>
+                                            )}
+                                        </div>
+                                        {menuFoods && MENU_SECTIONS.some(section => menuItemsOf(menuFoods, section.key).length > 0) ? (
+                                            <div className="space-y-3">
+                                                {MENU_SECTIONS.map(section => {
+                                                    const items = menuItemsOf(menuFoods, section.key);
+                                                    if (items.length === 0) return null;
+                                                    return (
+                                                        <div key={section.key} className={`food-card ${section.bg} rounded-2xl p-4 border-2 border-memphis-dark shadow-[4px_4px_0_#374151]`} style={{ '--rotate': section.rotate }}>
+                                                            <div className={`font-bold ${section.titleClass} text-lg mb-3`}>{section.title} ({items.length})</div>
+                                                            <div className="flex flex-wrap gap-2">
+                                                                {items.map((food, i) => {
+                                                                    const item = menuItemView(food, section.fallbackEmoji);
+                                                                    return (
+                                                                        <span key={i} className="bg-white/90 px-3 py-1.5 rounded-full text-sm font-medium text-memphis-dark">{item.emoji} {item.name}</span>
+                                                                    );
+                                                                })}
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        ) : (
+                                            <div className="bg-white rounded-3xl p-6 border-3 border-memphis-dark shadow-[6px_6px_0_#374151] text-center" style={{ borderWidth: '3px' }}>
+                                                <div className="text-4xl mb-4">🍽️</div>
+                                                <p className="text-gray-500 font-medium">{menuFoods ? '菜单还是空的' : '菜单暂时没有加载出来'}</p>
+                                                <p className="text-sm text-gray-400 mt-2">{menuFoods ? '有新的菜式会显示在这里' : '稍后再来看看吧'}</p>
                                             </div>
                                         )}
                                     </div>
