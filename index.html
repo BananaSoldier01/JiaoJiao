@@ -162,9 +162,27 @@
             { key: 'snacks', title: '零食加餐', bg: 'bg-memphis-yellow', titleClass: 'text-memphis-dark', rotate: '2deg', fallbackEmoji: '🍪' },
         ];
 
+        const ALLERGEN_CATEGORY_KEYS = ['grains', 'vegetables', 'protein', 'oils', 'mushrooms', 'bean_products', 'fruits', 'other'];
+
+        function numericTotal(value) {
+            return typeof value === 'number' && isFinite(value) ? value : null;
+        }
+
+        function sumCategoryLengths(categories, keys) {
+            if (!categories) return 0;
+            return keys.reduce((sum, key) => {
+                const items = categories[key];
+                return sum + (Array.isArray(items) ? items.length : 0);
+            }, 0);
+        }
+
         function menuItemsOf(categories, key) {
             if (!categories || !Array.isArray(categories[key])) return [];
             return categories[key].filter(food => food != null && food !== '');
+        }
+
+        function menuCategoryCount(categories) {
+            return MENU_SECTIONS.reduce((sum, section) => sum + menuItemsOf(categories, section.key).length, 0);
         }
 
         function menuItemView(food, fallbackEmoji) {
@@ -187,8 +205,10 @@
             const [todayData, setTodayData] = useState(null);
             const [loading, setLoading] = useState(true);
             const [allergenFoods, setAllergenFoods] = useState(null);
+            const [allergenTotal, setAllergenTotal] = useState(null);
             const [allergenView, setAllergenView] = useState('ingredients');
             const [menuFoods, setMenuFoods] = useState(null);
+            const [menuTotal, setMenuTotal] = useState(null);
             const [showNameStory, setShowNameStory] = useState(false);
             const [activeTab, setActiveTab] = useState('home');
             const [wishes, setWishes] = useState([]);
@@ -231,8 +251,11 @@
                     const response = await fetch(`${API_BASE_URL}/api/allergen-foods`);
                     const data = await response.json();
 
-                    // 直接使用后端返回的数据（已包含emoji）
-                    return data.categories;
+                    // 直接使用后端返回的数据（已包含emoji）；total 单独保留给标题计数
+                    return {
+                        categories: data && data.categories,
+                        total: numericTotal(data && data.total)
+                    };
                 } catch (error) {
                     console.error('获取排敏食物失败：', error);
                     return null;
@@ -246,10 +269,11 @@
                     if (!response.ok) throw new Error('菜单加载失败');
                     const data = await response.json();
                     const categories = data && data.categories;
+                    const total = numericTotal(data && data.total);
                     if (!categories || typeof categories !== 'object' || Array.isArray(categories)) {
-                        return {};
+                        return { categories: {}, total };
                     }
-                    return categories;
+                    return { categories, total };
                 } catch (error) {
                     console.error('获取菜单失败：', error);
                     return null;
@@ -319,15 +343,17 @@
                         fetchAllergenFoods(),
                         fetchMenuFoods()
                     ]);
-                    if (foods) {
-                        setAllergenFoods(foods);
-                        console.log('🥦 排敏食物：', foods);
+                    if (foods && foods.categories) {
+                        setAllergenFoods(foods.categories);
+                        setAllergenTotal(foods.total);
+                        console.log('🥦 排敏食物：', foods.categories, foods.total);
                     } else {
                         console.error('❌ 获取排敏食物失败');
                     }
                     if (menus) {
-                        setMenuFoods(menus);
-                        console.log('🍽️ 菜单：', menus);
+                        setMenuFoods(menus.categories);
+                        setMenuTotal(menus.total);
+                        console.log('🍽️ 菜单：', menus.categories, menus.total);
                     } else {
                         console.error('❌ 获取菜单失败');
                     }
@@ -986,7 +1012,7 @@
                                 <div className="flex items-center justify-between mb-6">
                                     <h2 className="text-xl font-bold text-memphis-dark">已排敏食物</h2>
                                     <span className="text-sm text-memphis-dark font-bold tracking-wide">
-                                        共{allergenFoods ? (allergenFoods.grains.length + allergenFoods.vegetables.length + allergenFoods.protein.length + allergenFoods.oils.length + allergenFoods.mushrooms.length + allergenFoods.bean_products.length + allergenFoods.fruits.length) : 0}种
+                                        共{allergenFoods ? (allergenTotal != null ? allergenTotal : sumCategoryLengths(allergenFoods, ALLERGEN_CATEGORY_KEYS)) : 0}种
                                     </span>
                                 </div>
                                 {allergenFoods && (
@@ -1081,7 +1107,7 @@
                                             <h2 className="text-xl font-bold text-memphis-dark">菜单</h2>
                                             {menuFoods && (
                                                 <span className="text-sm text-memphis-dark font-bold tracking-wide">
-                                                    共{MENU_SECTIONS.reduce((sum, section) => sum + menuItemsOf(menuFoods, section.key).length, 0)}种
+                                                    共{menuTotal != null ? menuTotal : menuCategoryCount(menuFoods)}种
                                                 </span>
                                             )}
                                         </div>
